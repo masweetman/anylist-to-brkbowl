@@ -61,3 +61,5 @@ Thumbs.db
 # Editor backups
 *.bak
 *.tmp
+tests/
+tmp/
