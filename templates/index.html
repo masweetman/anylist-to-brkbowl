@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shopping List</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Shopping List</h1>
+            <div class="header-buttons">
+                <button class="btn-primary" id="importBtn">Import from AnyList</button>
+                <button class="btn-secondary" id="exportCsvBtn">Export to CSV</button>
+                <button class="btn-secondary" id="importCsvBtn">Import from CSV</button>
+                <button class="btn-success" id="addToCartBtn">Add all to cart</button>
+                <a href="/settings" class="btn-secondary">Settings</a>
+            </div>
+        </header>
+
+        <main>
+            <div class="input-section">
+                <input 
+                    type="text" 
+                    id="newItemInput" 
+                    placeholder="Add a new item..." 
+                    autocomplete="off"
+                >
+                <button class="btn-add" id="addItemBtn">Add</button>
+            </div>
+
+            <div id="itemsList" class="items-list">
+                <!-- Items will be dynamically added here -->
+            </div>
+
+            <div id="emptyState" class="empty-state">
+                <p>No items yet. Add one or import from AnyList!</p>
+            </div>
+        </main>
+    </div>
+
+    <!-- Import Modal -->
+    <div id="importModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Import from AnyList</h2>
+            <form id="importForm">
+                <div class="form-group">
+                    <label for="email">Email:</label>
+                    <input 
+                        type="email" 
+                        id="email" 
+                        name="email" 
+                        required
+                        placeholder="your@email.com"
+                    >
+                </div>
+                <div class="form-group">
+                    <label for="password">Password:</label>
+                    <input 
+                        type="password" 
+                        id="password" 
+                        name="password" 
+                        required
+                        placeholder="Your password"
+                    >
+                </div>
+                <div class="form-group">
+                    <label for="listName">List Name (optional):</label>
+                    <input 
+                        type="text" 
+                        id="listName" 
+                        name="listName" 
+                        placeholder="Leave blank to import first list"
+                    >
+                </div>
+                <button type="submit" class="btn-primary">Import</button>
+            </form>
+            <div id="importMessage" class="message"></div>
+        </div>
+    </div>
+
+    <!-- CSV Import Modal -->
+    <div id="csvImportModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Import from CSV</h2>
+            <form id="csvImportForm">
+                <div class="form-group">
+                    <label for="csvFile">Select CSV file:</label>
+                    <input 
+                        type="file" 
+                        id="csvFile" 
+                        name="csvFile" 
+                        accept=".csv"
+                        required
+                    >
+                    <small>CSV should have columns: Name, URL, Complete</small>
+                </div>
+                <button type="submit" class="btn-primary">Import</button>
+            </form>
+            <div id="csvImportMessage" class="message"></div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

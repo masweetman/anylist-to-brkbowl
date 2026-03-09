@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Shopping List</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Settings</h1>
+            <a href="/" class="btn-primary">Back to List</a>
+        </header>
+
+        <main>
+            <div class="settings-section">
+                <h2>AnyList Configuration</h2>
+                <p class="section-description">Enter your AnyList credentials and preferred shopping list name to use for imports.</p>
+
+                <form id="settingsForm">
+                    <div class="form-group">
+                        <label for="email">Email:</label>
+                        <input 
+                            type="email" 
+                            id="email" 
+                            name="email" 
+                            placeholder="your@email.com"
+                            autocomplete="email"
+                        >
+                        <small>Your AnyList account email</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="password">Password:</label>
+                        <input 
+                            type="password" 
+                            id="password" 
+                            name="password" 
+                            placeholder="Your password"
+                            autocomplete="current-password"
+                        >
+                        <small>Your AnyList account password</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="listName">Shopping List Name (optional):</label>
+                        <input 
+                            type="text" 
+                            id="listName" 
+                            name="listName" 
+                            placeholder="e.g., Groceries"
+                        >
+                        <small>Leave blank to use the first list in your AnyList account</small>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn-primary">Save Settings</button>
+                        <button type="reset" class="btn-secondary">Reset Form</button>
+                    </div>
+                </form>
+
+                <div id="settingsMessage" class="message"></div>
+            </div>
+
+            <div class="settings-info">
+                <h3>About AnyList Import</h3>
+                <p>Once you save your settings here, you can quickly import your AnyList shopping list from the main page without re-entering credentials.</p>
+                <ul>
+                    <li>Your credentials are stored securely in the app's database</li>
+                    <li>If you don't specify a list name, the app will import from your first list</li>
+                    <li>You can change these settings anytime by returning to this page</li>
+                </ul>
+            </div>
+
+            <div class="settings-section">
+                <h2>Browser Cookies</h2>
+                <p class="section-description">Add cookies that will be automatically injected into the browser before shopping automation. Cookies are automatically transformed to be compatible with Playwright.</p>
+
+                <form id="cookiesForm">
+                    <div class="form-group">
+                        <label for="cookiesTextarea">Cookies (JSON):</label>
+                        <textarea 
+                            id="cookiesTextarea" 
+                            name="cookies"
+                            placeholder='[{"name": "session_id", "value": "abc123", "domain": "shop.example.com", "path": "/", "secure": true, "httpOnly": true}]'
+                            rows="10"
+                        ></textarea>
+                        <small>Enter an array of cookie objects. Each cookie should have: <strong>name</strong>, <strong>value</strong>, <strong>domain</strong> (required for site-specific cookies). Optional fields: path, secure, httpOnly, expirationDate, sameSite</small>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn-primary">Save Cookies</button>
+                        <button type="reset" class="btn-secondary">Reset Form</button>
+                    </div>
+                </form>
+
+                <div id="cookiesMessage" class="message"></div>
+            </div>
+
+            <div class="settings-info">
+                <h3>About Cookies</h3>
+                <p>Cookies are used to maintain your session and authentication on shopping websites during automated checkout.</p>
+                <ul>
+                    <li>Cookies should be in valid JSON array format</li>
+                    <li>Export cookies from your browser using tools like "Export Cookies as JSON" extensions</li>
+                    <li><strong>domain</strong> field must match the shopping site (e.g., <code>shop.heinzcatering.berkeleybowl.com</code>)</li>
+                    <li>Cookies are automatically validated and transformed for compatibility</li>
+                    <li>Cookies are injected before each cart automation run</li>
+                    <li>Set <code>secure: true</code> for HTTPS sites</li>
+                </ul>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='settings.js') }}"></script>
+</body>
+</html>
