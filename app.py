@@ -25,7 +25,7 @@ app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
 
 @app.before_request
 def require_login():
-    if request.endpoint in ('login', 'logout', 'static'):
+    if request.endpoint in ('login', 'logout', 'reset_app', 'static'):
         return
     settings = Settings.query.first()
     if not (settings and settings.app_password):
@@ -472,6 +472,29 @@ def save_settings():
     db.session.commit()
     
     return jsonify(settings.to_dict())
+
+
+@app.route('/api/reset', methods=['POST'])
+def reset_app():
+    """Forgot-password reset: deletes all shopping items, clears AnyList
+    credentials and the app password.  Accessible without authentication so
+    that a locked-out user can recover access."""
+    try:
+        ShoppingItem.query.delete()
+
+        settings = Settings.query.first()
+        if settings:
+            settings.anylist_email = None
+            settings.anylist_password = None
+            settings.anylist_list_name = None
+            settings.app_password = None
+
+        db.session.commit()
+        session.clear()
+
+        return jsonify({'success': True, 'message': 'App has been reset'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/settings/password', methods=['POST'])
