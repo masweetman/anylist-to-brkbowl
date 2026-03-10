@@ -7,7 +7,6 @@
 :root {
     --primary-color: #4CAF50;
     --secondary-color: #2196F3;
-    --danger-color: #f44336;
     --border-color: #ddd;
     --text-color: #333;
     --light-bg: #f9f9f9;
@@ -80,7 +79,6 @@ main {
 .btn-primary,
 .btn-add,
 .btn-secondary,
-.btn-danger,
 .btn-success {
     padding: 12px 20px;
     border: none;
@@ -136,17 +134,6 @@ main {
     background: #218838;
     transform: translateY(-2px);
     box-shadow: var(--shadow);
-}
-
-.btn-danger {
-    background: var(--danger-color);
-    color: white;
-    padding: 8px 12px;
-    font-size: 12px;
-}
-
-.btn-danger:hover {
-    background: #da190b;
 }
 
 .items-list {
@@ -299,22 +286,6 @@ main {
 }
 
 .form-group input:focus {
-    outline: none;
-    border-color: var(--primary-color);
-}
-
-.form-group textarea {
-    width: 100%;
-    padding: 10px 12px;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: 'Monaco', 'Courier New', monospace;
-    transition: border-color 0.3s;
-    resize: vertical;
-}
-
-.form-group textarea:focus {
     outline: none;
     border-color: var(--primary-color);
 }

@@ -1,5 +1,4 @@
 import csv
-import hmac
 import os
 import time
 import threading
@@ -31,6 +30,22 @@ def require_login():
     settings = Settings.query.first()
     if not (settings and settings.app_password):
         return  # no password set — allow all access
+
+    # The /interact page and its API endpoints are authenticated by the
+    # session_id token in the URL/request rather than the login cookie.
+    # This is necessary because iOS browsers (Safari and Chrome) do not
+    # reliably share session cookies with new tabs opened via window.open(),
+    # so the new tab would otherwise always get a 401.
+    if request.endpoint == 'interact':
+        return
+    if request.endpoint in (
+        'interact_status',
+        'interact_item_complete',
+        'interact_item_skip',
+        'interact_heartbeat',
+    ):
+        return
+
     if not session.get('authenticated'):
         if request.path.startswith('/api/'):
             return jsonify({'error': 'Authentication required'}), 401
@@ -162,7 +177,6 @@ def interact_item_complete(session_id):
     """Mark current item as complete and move to next"""
     try:
         data = request.json
-        cart_count_changed = data.get('cart_count_changed', False)
         product_url = data.get('product_url', '')
         
         with _sessions_lock:

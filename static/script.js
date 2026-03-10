@@ -167,8 +167,6 @@ async function toggleComplete(itemId, complete) {
     }
 }
 
-// Delete item
-
 // Enter edit mode
 function enterEditMode(itemId, itemEl) {
     const item = items.find((i) => i.id === itemId);
@@ -357,6 +355,14 @@ async function handleAddAllToCart() {
     const confirmed = confirm(`Add ${incompleteItems.length} item(s) to cart? A new tab will open in this window for you to interact with Berkeley Bowl.`);
     if (!confirmed) return;
     
+    // Open the new tab immediately while still in the synchronous user-gesture
+    // context. Safari on iOS blocks window.open() calls that happen after an
+    // await (async gap), so we must open the tab before any fetch() calls.
+    const newTab = window.open('', '_blank');
+    if (newTab) {
+        newTab.document.write('<p style="font-family:sans-serif;padding:20px">Starting shopping session…</p>');
+    }
+
     // Disable button during process
     const originalText = addToCartBtn.textContent;
     addToCartBtn.disabled = true;
@@ -375,16 +381,24 @@ async function handleAddAllToCart() {
         
         if (response.ok && data.session_id) {
             const interactUrl = `/interact?session_id=${data.session_id}`;
-            window.open(interactUrl, '_blank');
+            if (newTab && !newTab.closed) {
+                // Navigate the already-open tab to the real URL
+                newTab.location.href = interactUrl;
+            } else {
+                // Fallback: try opening again (may be blocked on iOS, but worth trying)
+                window.open(interactUrl, '_blank');
+            }
             addToCartBtn.disabled = false;
             addToCartBtn.textContent = originalText;
         } else {
+            if (newTab && !newTab.closed) newTab.close();
             alert(`Error: ${data.error || 'Failed to start shopping session'}`);
             addToCartBtn.disabled = false;
             addToCartBtn.textContent = originalText;
         }
     } catch (error) {
         console.error('Error starting shopping session:', error);
+        if (newTab && !newTab.closed) newTab.close();
         alert('Error starting shopping session. Please try again.');
         addToCartBtn.disabled = false;
         addToCartBtn.textContent = originalText;
