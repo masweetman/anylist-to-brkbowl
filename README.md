@@ -1,145 +1,194 @@
-# Shopping List Flask App
+# AnyList → Berkeley Bowl
 
-A Flask web application for managing shopping lists with the ability to import items from AnyList.
+A Flask web app for managing a shopping list and guiding you through adding items to your Berkeley Bowl online cart. Syncs completion status with AnyList.
 
 ## Features
 
-- ✅ Add, edit, and delete shopping items
-- ✅ Mark items as complete/incomplete with checkboxes
-- ✅ Add and edit URLs for each item
-- ✅ Click URLs to open them in a new tab
-- ✅ Import shopping lists from AnyList
-- ✅ **Settings page** to save AnyList credentials and list name
-- ✅ **Add all to cart** - Guide user to manually add incomplete items to Berkeley Bowl cart
-- ✅ Persistent storage with SQLite database
-- ✅ Responsive and modern UI
+- Import shopping lists from AnyList (syncs checkmarks both ways)
+- Interactive cart assistant — opens Berkeley Bowl in a tab and walks you through each item one by one
+- Add, edit, and manually check off items
+- Import/export via CSV
+- Persistent SQLite storage
 
-## Setup
+---
 
-### 1. Install Dependencies
+## Deploying on Ubuntu Server
+
+### 1. Install system dependencies
 
 ```bash
-pip install -r requirements.txt
+sudo apt update && sudo apt install -y python3 python3-pip python3-venv nginx
 ```
 
-### 2. Run the Application
+### 2. Clone the repository
 
 ```bash
-python app.py
+cd /srv
+sudo git clone <your-repo-url> anylist-to-brkbowl
+sudo chown -R $USER:$USER /srv/anylist-to-brkbowl
+cd /srv/anylist-to-brkbowl
 ```
 
-The app will be available at `http://localhost:5000`
+### 3. Create a virtual environment and install dependencies
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install gunicorn
+```
+
+### 4. Configure environment variables
+
+Create a `.env` file:
+
+```bash
+nano .env
+```
+
+Contents:
+
+```
+FLASK_ENV=production
+```
+
+### 5. Create a systemd service
+
+```bash
+sudo nano /etc/systemd/system/anylist-brkbowl.service
+```
+
+Paste:
+
+```ini
+[Unit]
+Description=AnyList to Berkeley Bowl Flask App
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/anylist-to-brkbowl
+ExecStart=/srv/anylist-to-brkbowl/.venv/bin/gunicorn \
+    --workers 2 \
+    --bind 127.0.0.1:5001 \
+    app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Set ownership and enable the service:
+
+```bash
+sudo chown -R www-data:www-data /srv/anylist-to-brkbowl
+sudo systemctl daemon-reload
+sudo systemctl enable anylist-brkbowl
+sudo systemctl start anylist-brkbowl
+```
+
+Check it started successfully:
+
+```bash
+sudo systemctl status anylist-brkbowl
+```
+
+### 6. Configure Nginx as a reverse proxy
+
+```bash
+sudo nano /etc/nginx/sites-available/anylist-brkbowl
+```
+
+Paste (replace `your.domain.com` with your domain or server IP):
+
+```nginx
+server {
+    listen 80;
+    server_name your.domain.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:5001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Enable the site and reload Nginx:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/anylist-brkbowl /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+The app is now accessible at `http://your.domain.com`.
+
+### 7. Enable HTTPS with Let's Encrypt (recommended)
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d your.domain.com
+```
+
+Certbot updates your Nginx config automatically and sets up auto-renewal.
+
+---
 
 ## How to Use
 
-### Adding Items
+### Import from AnyList
 
-1. Type the item name in the input field
-2. Click "Add" or press Enter
-3. Optionally add a URL by clicking the "Edit" button on the item
+1. Go to **Settings** and enter your AnyList email, password, and list name.
+2. Click **Import from AnyList** on the main page. All items from that list are imported; previously complete items are reset to incomplete.
 
-### Managing Items
+### Add items to your Berkeley Bowl cart
 
-- **Mark Complete**: Check the checkbox next to an item
-- **Edit Item**: Click the "Edit" button to modify the name or URL
-- **Delete Item**: Click the "Delete" button to remove an item
-- **Open URL**: Click on the URL text to open it in a new tab
+1. Click **Add all to cart**. A new tab opens with the shopping assistant.
+2. For each incomplete item, Berkeley Bowl loads in the tab — either directly on the product page (if a URL is saved) or on a search results page.
+3. Add the item to your cart, then click **✓ Added to Cart** to move to the next item.
+4. Click **Skip** to leave an item for later without marking it complete.
+5. Click **✕ Cancel** to end the session and close the tab.
+6. When finished, each completed item is crossed off in AnyList automatically.
 
-### Using Settings
+### Manage items manually
 
-1. Click the "Settings" button in the top right of the shopping list page
-2. Enter your **AnyList email** and **password**
-3. (Optional) Enter the **shopping list name** you want to import by default
-4. Click "Save Settings"
-5. Your settings are now saved and will be used when you import from AnyList
+- **Add**: Type a name in the input field and press Enter or click **Add**.
+- **Edit**: Click **Edit** on any item to change its name or URL.
+- **Check/Uncheck**: Toggle the checkbox — syncs to AnyList if the item was imported from there.
+- **Export/Import CSV**: Use the CSV buttons to back up or bulk-import items.
 
-### Importing from AnyList
-
-1. Click the "Import from AnyList" button
-2. Your saved credentials and list name will be pre-filled automatically
-3. Edit them if needed, or click "Import" to use the saved settings
-4. Items from AnyList will be added to your shopping list (complete status reset to FALSE)
-5. Existing items will have their complete status reset to FALSE
-
-### Add Items to Shopping Cart
-
-1. Click the "Add all to cart" button at the top right
-2. Confirm the action when prompted
-3. For each item, the app will:
-   - **For items with URLs**: Navigate directly to the product URL and click the "Add to cart" button
-   - **For items without URLs**: Navigate to the search page, search for the item by name, and wait for you to manually select the product (30 second timeout)
-4. This process may take several minutes depending on how many items you have and whether you need to manually select products
-
-## AnyList Library
-
-This app uses the [pyanylist](https://github.com/ozonejunkieau/pyanylist) Python library to authenticate and import data from AnyList. pyanylist is an unofficial Python binding for the AnyList API, built with Rust and PyO3 for performance.
+---
 
 ## Project Structure
 
 ```
 anylist-to-brkbowl/
-├── app.py              # Main Flask application
-├── database.py         # Database models and setup
+├── app.py              # Flask application and API routes
+├── database.py         # SQLAlchemy models
 ├── requirements.txt    # Python dependencies
 ├── .env                # Environment variables
 ├── templates/
 │   ├── index.html      # Shopping list page
+│   ├── interact.html   # Interactive cart assistant
 │   └── settings.html   # Settings page
 └── static/
-    ├── style.css       # Styling
-    ├── script.js       # Shopping list functionality
-    └── settings.js     # Settings page functionality
+    ├── style.css
+    ├── script.js       # Shopping list UI
+    └── settings.js     # Settings UI
 ```
 
-## Database Schema
-
-### ShoppingItem Table
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | Integer | Primary key |
-| name | String | Item name (unique) |
-| complete | Boolean | Completion status |
-| url | String | Optional URL for the item |
-| created_at | DateTime | Creation timestamp |
-| updated_at | DateTime | Last update timestamp |
-### Settings Table
-
-| Column | Type | Description |
-|--------|------|-----------|
-| id | Integer | Primary key |
-| anylist_email | String | Saved AnyList email |
-| anylist_password | String | Saved AnyList password |
-| anylist_list_name | String | Default AnyList list name to import |
-| updated_at | DateTime | Last update timestamp |
-## API Endpoints
-
-### Shopping List
-- `GET /` - Render the main shopping list page
-- `GET /api/items` - Get all items
-- `POST /api/items` - Create a new item
-- `PUT /api/items/<id>` - Update an item
-- `DELETE /api/items/<id>` - Delete an item
-- `POST /api/import-anylist` - Import items from AnyList
-
-### Settings
-- `GET /settings` - Render the settings page
-- `GET /api/settings` - Get user settings
-- `POST /api/settings` - Save user settings
+---
 
 ## Troubleshooting
 
-### AnyList Import Fails
+**AnyList import fails** — Double-check your email and password in Settings. The list name must match exactly, or leave it blank to use the first list in your account.
 
-- Verify your email and password are correct
-- Make sure your AnyList account is active
-- Check that you have items in the list you're trying to import
+**App won't start** — Check logs with `sudo journalctl -u anylist-brkbowl -n 50`.
 
-### Database Errors
+**Berkeley Bowl blocks the iframe** — Some browsers or network configurations may prevent embedding. Check the browser console for errors.
 
-- Delete `shopping_list.db` to reset the database
-- The database will be recreated automatically
-
-## License
-
-MIT
+**Reset the database** — Delete `instance/shopping_list.db` and restart the app. The schema is recreated automatically.
