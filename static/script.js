@@ -14,9 +14,6 @@ const itemsList = document.getElementById('itemsList');
 const emptyState = document.getElementById('emptyState');
 const importMessage = document.getElementById('importMessage');
 const csvImportMessage = document.getElementById('csvImportMessage');
-const skipBtn = document.getElementById('skipBtn');
-const skipBar = document.getElementById('skipBar');
-const skipBarText = document.getElementById('skipBarText');
 
 let items = [];
 
@@ -357,13 +354,13 @@ async function handleAddAllToCart() {
     }
     
     // Confirm action
-    const confirmed = confirm(`Add ${incompleteItems.length} item(s) to cart? This may take a few minutes.`);
+    const confirmed = confirm(`Add ${incompleteItems.length} item(s) to cart? A new tab will open in this window for you to interact with Berkeley Bowl.`);
     if (!confirmed) return;
     
     // Disable button during process
     const originalText = addToCartBtn.textContent;
     addToCartBtn.disabled = true;
-    addToCartBtn.textContent = 'Adding to cart...';
+    addToCartBtn.textContent = 'Starting shopping...';
     
     try {
         const response = await fetch('/api/add-to-cart', {
@@ -371,39 +368,24 @@ async function handleAddAllToCart() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 cart_url: 'https://shop.heinzcatering.berkeleybowl.com/'
-            }),
-            timeout: 300000 // 5 minute timeout
+            })
         });
         
         const data = await response.json();
         
-        if (response.ok) {
-            let message = `Added ${data.added.length} items to cart`;
-            
-            // Count items with captured URLs
-            const urlsCaptured = data.added.filter(item => {
-                return typeof item === 'object' && item.url && item.url.length > 0;
-            }).length;
-            
-            if (urlsCaptured > 0) {
-                message += `\n${urlsCaptured} items now have direct product URLs saved`;
-            }
-            
-            if (data.failed && data.failed.length > 0) {
-                message += `\nFailed: ${data.failed.length} items`;
-            }
-            alert(message);
-            
-            // Reload items to show updated URLs
-            await loadItems();
+        if (response.ok && data.session_id) {
+            const interactUrl = `/interact?session_id=${data.session_id}`;
+            window.open(interactUrl, '_blank');
+            addToCartBtn.disabled = false;
+            addToCartBtn.textContent = originalText;
         } else {
-            alert(`Error: ${data.error}`);
+            alert(`Error: ${data.error || 'Failed to start shopping session'}`);
+            addToCartBtn.disabled = false;
+            addToCartBtn.textContent = originalText;
         }
     } catch (error) {
-        console.error('Error adding to cart:', error);
-        alert('Error adding items to cart. Please try again.');
-    } finally {
-        // Re-enable button
+        console.error('Error starting shopping session:', error);
+        alert('Error starting shopping session. Please try again.');
         addToCartBtn.disabled = false;
         addToCartBtn.textContent = originalText;
     }

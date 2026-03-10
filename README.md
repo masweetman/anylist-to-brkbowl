@@ -10,7 +10,7 @@ A Flask web application for managing shopping lists with the ability to import i
 - ✅ Click URLs to open them in a new tab
 - ✅ Import shopping lists from AnyList
 - ✅ **Settings page** to save AnyList credentials and list name
-- ✅ **Add all to cart** - Automatically add incomplete items to Amazon cart using Playwright
+- ✅ **Add all to cart** - Guide user to manually add incomplete items to Berkeley Bowl cart
 - ✅ Persistent storage with SQLite database
 - ✅ Responsive and modern UI
 
@@ -65,7 +65,7 @@ The app will be available at `http://localhost:5000`
 
 1. Click the "Add all to cart" button at the top right
 2. Confirm the action when prompted
-3. The app will use Playwright (browser automation) to:
+3. For each item, the app will:
    - **For items with URLs**: Navigate directly to the product URL and click the "Add to cart" button
    - **For items without URLs**: Navigate to the search page, search for the item by name, and wait for you to manually select the product (30 second timeout)
 4. This process may take several minutes depending on how many items you have and whether you need to manually select products

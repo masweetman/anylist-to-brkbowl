@@ -5,21 +5,15 @@ const emailInput = document.getElementById('email');
 const passwordInput = document.getElementById('password');
 const listNameInput = document.getElementById('listName');
 
-const cookiesForm = document.getElementById('cookiesForm');
-const cookiesMessage = document.getElementById('cookiesMessage');
-const cookiesTextarea = document.getElementById('cookiesTextarea');
-
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     loadSettings();
-    loadCookies();
     attachEventListeners();
 });
 
 // Attach event listeners
 function attachEventListeners() {
     settingsForm.addEventListener('submit', handleSaveSettings);
-    cookiesForm.addEventListener('submit', handleSaveCookies);
 }
 
 // Load settings from server
@@ -39,26 +33,6 @@ async function loadSettings() {
         }
     } catch (error) {
         console.error('Error loading settings:', error);
-    }
-}
-
-// Load cookies from server
-async function loadCookies() {
-    try {
-        const response = await fetch('/api/cookies');
-        const data = await response.json();
-        
-        if (data.cookies) {
-            // Parse and pretty-print the JSON
-            try {
-                const parsed = JSON.parse(data.cookies);
-                cookiesTextarea.value = JSON.stringify(parsed, null, 2);
-            } catch {
-                cookiesTextarea.value = data.cookies;
-            }
-        }
-    } catch (error) {
-        console.error('Error loading cookies:', error);
     }
 }
 
@@ -98,49 +72,6 @@ async function handleSaveSettings(e) {
     } catch (error) {
         console.error('Error saving settings:', error);
         showMessage('error', 'Error saving settings', settingsMessage);
-    }
-}
-
-// Handle save cookies
-async function handleSaveCookies(e) {
-    e.preventDefault();
-
-    const cookiesText = cookiesTextarea.value.trim();
-
-    if (!cookiesText) {
-        showMessage('error', 'Please enter cookie data', cookiesMessage);
-        return;
-    }
-
-    // Validate JSON
-    try {
-        JSON.parse(cookiesText);
-    } catch (err) {
-        showMessage('error', `Invalid JSON: ${err.message}`, cookiesMessage);
-        return;
-    }
-
-    try {
-        const response = await fetch('/api/cookies', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                cookies: cookiesText,
-            }),
-        });
-
-        if (response.ok) {
-            showMessage('success', 'Cookies saved successfully!', cookiesMessage);
-            setTimeout(() => {
-                cookiesMessage.innerHTML = '';
-            }, 3000);
-        } else {
-            const error = await response.json();
-            showMessage('error', error.error || 'Failed to save cookies', cookiesMessage);
-        }
-    } catch (error) {
-        console.error('Error saving cookies:', error);
-        showMessage('error', 'Error saving cookies', cookiesMessage);
     }
 }
 

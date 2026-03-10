@@ -73,43 +73,7 @@
                 </ul>
             </div>
 
-            <div class="settings-section">
-                <h2>Browser Cookies</h2>
-                <p class="section-description">Add cookies that will be automatically injected into the browser before shopping automation. Cookies are automatically transformed to be compatible with Playwright.</p>
 
-                <form id="cookiesForm">
-                    <div class="form-group">
-                        <label for="cookiesTextarea">Cookies (JSON):</label>
-                        <textarea 
-                            id="cookiesTextarea" 
-                            name="cookies"
-                            placeholder='[{"name": "session_id", "value": "abc123", "domain": "shop.example.com", "path": "/", "secure": true, "httpOnly": true}]'
-                            rows="10"
-                        ></textarea>
-                        <small>Enter an array of cookie objects. Each cookie should have: <strong>name</strong>, <strong>value</strong>, <strong>domain</strong> (required for site-specific cookies). Optional fields: path, secure, httpOnly, expirationDate, sameSite</small>
-                    </div>
-
-                    <div class="form-actions">
-                        <button type="submit" class="btn-primary">Save Cookies</button>
-                        <button type="reset" class="btn-secondary">Reset Form</button>
-                    </div>
-                </form>
-
-                <div id="cookiesMessage" class="message"></div>
-            </div>
-
-            <div class="settings-info">
-                <h3>About Cookies</h3>
-                <p>Cookies are used to maintain your session and authentication on shopping websites during automated checkout.</p>
-                <ul>
-                    <li>Cookies should be in valid JSON array format</li>
-                    <li>Export cookies from your browser using tools like "Export Cookies as JSON" extensions</li>
-                    <li><strong>domain</strong> field must match the shopping site (e.g., <code>shop.heinzcatering.berkeleybowl.com</code>)</li>
-                    <li>Cookies are automatically validated and transformed for compatibility</li>
-                    <li>Cookies are injected before each cart automation run</li>
-                    <li>Set <code>secure: true</code> for HTTPS sites</li>
-                </ul>
-            </div>
         </main>
     </div>
 

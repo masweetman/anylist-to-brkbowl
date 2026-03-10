@@ -1,14 +1,18 @@
-import os
-import json
 import csv
+import time
+import threading
 from io import StringIO, BytesIO
 from flask import Flask, render_template, request, jsonify, send_file
 from database import db, ShoppingItem, Settings
 from dotenv import load_dotenv
-from cart_service import CartService
 
 # Load environment variables
 load_dotenv()
+
+# Global state for interactive add-to-cart sessions
+# Maps session_id -> {items: [...], current_index: 0, state: 'idle'|'running'|'complete', last_heartbeat: time}
+_sessions = {}
+_sessions_lock = threading.Lock()
 
 # Create Flask app
 app = Flask(__name__)
@@ -50,11 +54,165 @@ def settings():
     return render_template('settings.html')
 
 
+@app.route('/interact')
+def interact():
+    """Render the interactive shopping page (opened in new tab)"""
+    return render_template('interact.html')
+
+
 @app.route('/api/items', methods=['GET'])
 def get_items():
     """Get all shopping items"""
     items = ShoppingItem.query.order_by(ShoppingItem.complete, ShoppingItem.updated_at.desc()).all()
     return jsonify([item.to_dict() for item in items])
+
+
+@app.route('/api/interact/status/<session_id>', methods=['GET'])
+def interact_status(session_id):
+    """Get current session status and instructions for next item"""
+    try:
+        with _sessions_lock:
+            if session_id not in _sessions:
+                return jsonify({'error': 'Session not found'}), 404
+            
+            session = _sessions[session_id]
+            session['last_heartbeat'] = time.time()  # Update heartbeat
+            
+            # Check if session is done
+            if session['current_index'] >= len(session['items']):
+                return jsonify({
+                    'status': 'complete',
+                    'message': 'All items processed'
+                })
+            
+            # Get current item
+            current_item = session['items'][session['current_index']]
+            
+            # If item has URL, return it directly
+            if current_item['url']:
+                return jsonify({
+                    'status': 'ready',
+                    'item': current_item,
+                    'item_number': session['current_index'] + 1,
+                    'total_items': len(session['items']),
+                    'action': 'navigate',
+                    'url': current_item['url']
+                })
+            else:
+                # Need to search - generate search URL for user
+                return jsonify({
+                    'status': 'search_needed',
+                    'item': current_item,
+                    'item_number': session['current_index'] + 1,
+                    'total_items': len(session['items']),
+                    'action': 'search',
+                    'search_query': current_item['name']
+                })
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/interact/item-complete/<session_id>', methods=['POST'])
+def interact_item_complete(session_id):
+    """Mark current item as complete and move to next"""
+    try:
+        data = request.json
+        cart_count_changed = data.get('cart_count_changed', False)
+        product_url = data.get('product_url', '')
+        
+        with _sessions_lock:
+            if session_id not in _sessions:
+                return jsonify({'error': 'Session not found'}), 404
+            
+            session = _sessions[session_id]
+            
+            if session['current_index'] >= len(session['items']):
+                return jsonify({'error': 'All items already processed'}), 400
+            
+            # Mark item as complete
+            current_item = session['items'][session['current_index']]
+            current_item['complete'] = True
+            
+            # Update database
+            db_item = ShoppingItem.query.get(current_item['id'])
+            if db_item:
+                db_item.complete = True
+                
+                # Update URL only if it's a product page (not a search page)
+                if product_url and '/product' in product_url:
+                    db_item.url = product_url
+                
+                # Cross off in AnyList if possible
+                if db_item.anylist_item_id and db_item.anylist_list_id:
+                    try:
+                        settings = Settings.query.first()
+                        if settings and settings.anylist_email and settings.anylist_password:
+                            from pyanylist import AnyListClient
+                            client = AnyListClient.login(settings.anylist_email, settings.anylist_password)
+                            client.cross_off_item(db_item.anylist_list_id, db_item.anylist_item_id)
+                            print(f"   ✅ Crossed off in AnyList: {db_item.name}")
+                    except Exception as e:
+                        print(f"   ⚠️  Could not cross off in AnyList: {str(e)}")
+                
+                db.session.commit()
+            
+            # Move to next item
+            session['current_index'] += 1
+            
+            return jsonify({
+                'success': True,
+                'next_item_index': session['current_index'],
+                'total_items': len(session['items']),
+                'session_complete': session['current_index'] >= len(session['items'])
+            })
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/interact/item-skip/<session_id>', methods=['POST'])
+def interact_item_skip(session_id):
+    """Skip current item (do not mark complete) and move to next"""
+    try:
+        with _sessions_lock:
+            if session_id not in _sessions:
+                return jsonify({'error': 'Session not found'}), 404
+
+            session = _sessions[session_id]
+
+            if session['current_index'] >= len(session['items']):
+                return jsonify({'error': 'All items already processed'}), 400
+
+            # Advance without marking complete
+            session['current_index'] += 1
+
+            return jsonify({
+                'success': True,
+                'next_item_index': session['current_index'],
+                'total_items': len(session['items']),
+                'session_complete': session['current_index'] >= len(session['items'])
+            })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/interact/heartbeat/<session_id>', methods=['POST'])
+def interact_heartbeat(session_id):
+    """Keep session alive - called periodically by client"""
+    try:
+        with _sessions_lock:
+            if session_id not in _sessions:
+                return jsonify({'status': 'session_expired'}), 404
+            
+            session = _sessions[session_id]
+            session['last_heartbeat'] = time.time()
+            
+            return jsonify({'status': 'alive'})
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/items', methods=['POST'])
@@ -98,25 +256,22 @@ def update_item(item_id):
     if 'complete' in data:
         item.complete = data['complete']
         
-        # If marking as complete and we have AnyList IDs, cross it off in AnyList
-        if data['complete'] and item.anylist_item_id and item.anylist_list_id:
+        # Sync completion state with AnyList if we have IDs
+        if item.anylist_item_id and item.anylist_list_id:
             try:
                 settings = Settings.query.first()
                 if settings and settings.anylist_email and settings.anylist_password:
                     from pyanylist import AnyListClient
                     client = AnyListClient.login(settings.anylist_email, settings.anylist_password)
-                    print(f"   📍 Attempting to cross off in AnyList: {item.name}")
-                    print(f"      (List ID: {item.anylist_list_id}, Item ID: {item.anylist_item_id})")
-                    # Cross off the item in AnyList - requires both list_id and item_id
-                    result = client.cross_off_item(item.anylist_list_id, item.anylist_item_id)
-                    print(f"   ✅ Crossed off in AnyList: {item.name} (Result: {result})")
-                else:
-                    print(f"   ℹ️  No AnyList credentials configured, skipping cross-off")
+                    if data['complete']:
+                        client.cross_off_item(item.anylist_list_id, item.anylist_item_id)
+                        print(f"   ✅ Crossed off in AnyList: {item.name}")
+                    else:
+                        client.uncheck_item(item.anylist_list_id, item.anylist_item_id)
+                        print(f"   ↩️  Unchecked in AnyList: {item.name}")
             except Exception as e:
                 # Log error but don't fail the request
-                print(f"   ⚠️  Could not cross off '{item.name}' in AnyList: {str(e)}")
-        elif data['complete'] and not (item.anylist_item_id and item.anylist_list_id):
-            print(f"   ℹ️  No AnyList IDs stored for '{item.name}' - item may not have been imported from AnyList")
+                print(f"   ⚠️  Could not sync '{item.name}' with AnyList: {str(e)}")
     
     if 'url' in data:
         item.url = data['url']
@@ -261,48 +416,11 @@ def save_settings():
     return jsonify(settings.to_dict())
 
 
-@app.route('/api/cookies', methods=['GET'])
-def get_cookies():
-    """Get cookies from cookies.json"""
-    try:
-        cookies_file = os.path.join(os.path.dirname(__file__), 'cookies.json')
-        if os.path.exists(cookies_file):
-            with open(cookies_file, 'r') as f:
-                cookies = f.read()
-                return jsonify({'cookies': cookies})
-        return jsonify({'cookies': '[]'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/cookies', methods=['POST'])
-def save_cookies():
-    """Save cookies to cookies.json"""
-    try:
-        data = request.json
-        cookies = data.get('cookies', '[]')
-        
-        # Validate JSON
-        import json
-        json.loads(cookies)  # This will raise an error if invalid JSON
-        
-        cookies_file = os.path.join(os.path.dirname(__file__), 'cookies.json')
-        with open(cookies_file, 'w') as f:
-            f.write(cookies)
-        
-        return jsonify({'success': True, 'message': 'Cookies saved successfully'})
-    except json.JSONDecodeError as e:
-        return jsonify({'error': f'Invalid JSON: {str(e)}'}), 400
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
 @app.route('/api/add-to-cart', methods=['POST'])
 def add_to_cart():
-    """Add all incomplete items to shopping cart using Playwright"""
+    """Start interactive add-to-cart session and open in new tab"""
     try:
-        data = request.json
-        cart_url = data.get('cart_url', 'https://shop.heinzcatering.berkeleybowl.com/')
+        import uuid
         
         # Get all incomplete items
         items = ShoppingItem.query.filter_by(complete=False).all()
@@ -310,52 +428,33 @@ def add_to_cart():
         if not items:
             return jsonify({'error': 'No incomplete items to add to cart'}), 400
         
-        # Create item dictionaries with name and url
-        item_data = [{'name': item.name, 'url': item.url} for item in items]
+        # Create session
+        session_id = str(uuid.uuid4())
+        item_list = [
+            {
+                'id': item.id,
+                'name': item.name,
+                'url': item.url,
+                'anylist_item_id': item.anylist_item_id,
+                'anylist_list_id': item.anylist_list_id,
+                'complete': False
+            }
+            for item in items
+        ]
         
-        # Initialize cart service and add items
-        cart_service = CartService(cart_url)
-        results = cart_service.add_items(item_data)
+        with _sessions_lock:
+            _sessions[session_id] = {
+                'items': item_list,
+                'current_index': 0,
+                'state': 'running',
+                'last_heartbeat': time.time()
+            }
         
-        # Update database items with extracted product URLs and mark as complete
-        if results.get('success') and results.get('added'):
-            # Get AnyList credentials for cross-off
-            settings = Settings.query.first()
-            anylist_client = None
-            if settings and settings.anylist_email and settings.anylist_password:
-                try:
-                    from pyanylist import AnyListClient
-                    anylist_client = AnyListClient.login(settings.anylist_email, settings.anylist_password)
-                except Exception as e:
-                    print(f"   ⚠️  Could not connect to AnyList: {str(e)}")
-            
-            for added_item in results['added']:
-                item_name = added_item.get('name') if isinstance(added_item, dict) else added_item
-                item_url = added_item.get('url') if isinstance(added_item, dict) else ''
-                
-                # Find and update the item in database
-                item = ShoppingItem.query.filter_by(name=item_name).first()
-                if item:
-                    # Mark item as complete
-                    item.complete = True
-                    # Update URL if it was extracted
-                    if item_url:
-                        item.url = item_url
-                        print(f"   ✅ Updated {item_name} URL: {item_url}")
-                    else:
-                        print(f"   ✅ Marked {item_name} as complete")
-                    
-                    # Cross off in AnyList if we have IDs and client
-                    if anylist_client and item.anylist_item_id and item.anylist_list_id:
-                        try:
-                            anylist_client.cross_off_item(item.anylist_list_id, item.anylist_item_id)
-                            print(f"   ✅ Crossed off in AnyList: {item_name}")
-                        except Exception as e:
-                            print(f"   ⚠️  Could not cross off '{item_name}' in AnyList: {str(e)}")
-            
-            db.session.commit()
-        
-        return jsonify(results)
+        return jsonify({
+            'session_id': session_id,
+            'total_items': len(item_list),
+            'interact_url': f'/interact?session_id={session_id}'
+        })
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500

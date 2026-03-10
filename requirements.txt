@@ -2,5 +2,3 @@ Flask==2.3.3
 Flask-SQLAlchemy==3.0.5
 pyanylist==0.0.5
 python-dotenv==1.0.0
-playwright==1.40.0
-playwright-stealth==2.0.2
