@@ -95,6 +95,34 @@
             box-shadow: 0 3px 8px rgba(0,0,0,0.3);
             white-space: nowrap;
         }
+
+        /* iOS fallback panel (replaces iframe — iOS blocks 3rd-party cookies in iframes) */
+        #ios-panel {
+            flex: 1;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #f5f5f5;
+            padding: 32px 24px;
+            text-align: center;
+            gap: 18px;
+        }
+        #ios-panel .ios-hint {
+            color: #666;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        #open-shop-btn {
+            display: inline-block;
+            background: #3949ab;
+            color: white;
+            padding: 14px 28px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 16px;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -116,6 +144,12 @@
     </div>
 
     <iframe id="site-frame" title="Berkeley Bowl" style="display:none"></iframe>
+
+    <!-- Shown instead of iframe on iOS where 3rd-party cookies are blocked -->
+    <div id="ios-panel">
+        <a id="open-shop-btn" href="#" target="_blank">Open Shop &#8594;</a>
+        <p class="ios-hint">After adding the item to your cart,<br>come back here and tap <strong>&#10003; Added to Cart</strong>.</p>
+    </div>
 
     <div id="completion-screen">
         <h1>&#10003; All Done!</h1>
@@ -172,8 +206,17 @@
                 document.getElementById('item-name').textContent = item.name;
                 document.getElementById('progress').textContent = `${status.item_number} / ${status.total_items}`;
 
-                const frame = document.getElementById('site-frame');
-                frame.src = url;
+                const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+                if (isIOS) {
+                    document.getElementById('open-shop-btn').href = url;
+                    showView('ios-panel');
+                } else {
+                    const frame = document.getElementById('site-frame');
+                    frame.src = url;
+                    showView('site-frame');
+                }
 
                 const addedBtn = document.getElementById('added-btn');
                 const skipBtn  = document.getElementById('skip-btn');
@@ -187,9 +230,10 @@
                     if (skipped) {
                         await fetch(`/api/interact/item-skip/${sessionId}`, { method: 'POST' });
                     } else {
-                        // Try to capture canonical URL from iframe (works across origins via <link> check)
+                        // Try to capture canonical URL from iframe (desktop only; cross-origin blocked on iOS)
                         let productUrl = url;
                         try {
+                            const frame = document.getElementById('site-frame');
                             const canonical = frame.contentDocument.querySelector('link[rel="canonical"]');
                             if (canonical && canonical.href && canonical.href.includes('/product')) {
                                 productUrl = canonical.href;
@@ -211,7 +255,6 @@
                 skipBtn.onclick  = () => done(true);
                 document.getElementById('cancel-btn').onclick = () => { window.close(); };
 
-                showView('site-frame');
                 document.getElementById('toolbar').style.display = 'flex';
 
             } catch (e) {
@@ -220,8 +263,9 @@
         }
 
         function showView(id) {
-            ['loading-screen', 'site-frame', 'completion-screen'].forEach(v => {
+            ['loading-screen', 'site-frame', 'ios-panel', 'completion-screen'].forEach(v => {
                 const el = document.getElementById(v);
+                if (!el) return;
                 if (v === id) {
                     el.style.display = (v === 'site-frame') ? 'block' : 'flex';
                 } else {

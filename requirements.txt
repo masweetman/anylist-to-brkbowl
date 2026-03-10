@@ -2,3 +2,5 @@ Flask==2.3.3
 Flask-SQLAlchemy==3.0.5
 pyanylist==0.0.5
 python-dotenv==1.0.0
+pytest==8.3.5
+werkzeug==2.3.7
