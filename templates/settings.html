@@ -73,6 +73,30 @@
                 </ul>
             </div>
 
+            <div class="settings-section">
+                <h2>Password Protection</h2>
+                <p class="section-description" id="passwordStatus"></p>
+
+                <form id="passwordForm">
+                    <div class="form-group">
+                        <label for="appPassword">New password:</label>
+                        <input
+                            type="password"
+                            id="appPassword"
+                            name="appPassword"
+                            placeholder="Leave blank to remove password"
+                            autocomplete="new-password"
+                        >
+                        <small>Leave blank and save to remove password protection entirely.</small>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn-primary">Save Password</button>
+                    </div>
+                </form>
+
+                <div id="passwordMessage" class="message"></div>
+            </div>
+
 
         </main>
     </div>

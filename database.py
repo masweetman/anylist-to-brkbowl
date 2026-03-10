@@ -38,6 +38,7 @@ class Settings(db.Model):
     anylist_email = db.Column(db.String(255), nullable=True)
     anylist_password = db.Column(db.String(255), nullable=True)
     anylist_list_name = db.Column(db.String(255), nullable=True)
+    app_password = db.Column(db.String(255), nullable=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     def to_dict(self):
@@ -47,5 +48,6 @@ class Settings(db.Model):
             'anylist_email': self.anylist_email,
             'anylist_password': self.anylist_password,
             'anylist_list_name': self.anylist_list_name,
+            'has_password': bool(self.app_password),
             'updated_at': self.updated_at.isoformat()
         }

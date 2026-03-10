@@ -4,6 +4,9 @@ const settingsMessage = document.getElementById('settingsMessage');
 const emailInput = document.getElementById('email');
 const passwordInput = document.getElementById('password');
 const listNameInput = document.getElementById('listName');
+const passwordForm = document.getElementById('passwordForm');
+const passwordMessage = document.getElementById('passwordMessage');
+const passwordStatus = document.getElementById('passwordStatus');
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -14,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Attach event listeners
 function attachEventListeners() {
     settingsForm.addEventListener('submit', handleSaveSettings);
+    passwordForm.addEventListener('submit', handleSetPassword);
 }
 
 // Load settings from server
@@ -31,6 +35,9 @@ async function loadSettings() {
         if (settings.anylist_list_name) {
             listNameInput.value = settings.anylist_list_name;
         }
+        passwordStatus.textContent = settings.has_password
+            ? '🔒 Password protection is enabled.'
+            : '🔓 No password set — the app is publicly accessible.';
     } catch (error) {
         console.error('Error loading settings:', error);
     }
@@ -79,4 +86,34 @@ async function handleSaveSettings(e) {
 function showMessage(type, text, targetElement = settingsMessage) {
     targetElement.className = `message ${type}`;
     targetElement.textContent = text;
+}
+
+// Handle set/change/remove app password
+async function handleSetPassword(e) {
+    e.preventDefault();
+    const newPassword = document.getElementById('appPassword').value;
+
+    try {
+        const response = await fetch('/api/settings/password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: newPassword }),
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+            const msg = data.has_password ? 'Password set successfully.' : 'Password removed. App is now publicly accessible.';
+            showMessage('success', msg, passwordMessage);
+            passwordStatus.textContent = data.has_password
+                ? '🔒 Password protection is enabled.'
+                : '🔓 No password set — the app is publicly accessible.';
+            document.getElementById('appPassword').value = '';
+            setTimeout(() => { passwordMessage.innerHTML = ''; }, 3000);
+        } else {
+            showMessage('error', data.error || 'Failed to update password', passwordMessage);
+        }
+    } catch (error) {
+        console.error('Error setting password:', error);
+        showMessage('error', 'Error updating password', passwordMessage);
+    }
 }

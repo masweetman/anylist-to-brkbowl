@@ -16,6 +16,7 @@
                 <button class="btn-secondary" id="importCsvBtn">Import from CSV</button>
                 <button class="btn-success" id="addToCartBtn">Add all to cart</button>
                 <a href="/settings" class="btn-secondary">Settings</a>
+                {% if has_password %}<a href="/logout" class="btn-secondary">Log out</a>{% endif %}
             </div>
         </header>
 

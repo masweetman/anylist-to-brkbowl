@@ -1,8 +1,11 @@
 import csv
+import hmac
+import os
 import time
 import threading
 from io import StringIO, BytesIO
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for
+from werkzeug.security import generate_password_hash, check_password_hash
 from database import db, ShoppingItem, Settings
 from dotenv import load_dotenv
 
@@ -18,6 +21,39 @@ _sessions_lock = threading.Lock()
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///shopping_list.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
+
+
+@app.before_request
+def require_login():
+    if request.endpoint in ('login', 'logout', 'static'):
+        return
+    settings = Settings.query.first()
+    if not (settings and settings.app_password):
+        return  # no password set — allow all access
+    if not session.get('authenticated'):
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'Authentication required'}), 401
+        return redirect(url_for('login'))
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    error = None
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        settings = Settings.query.first()
+        if settings and settings.app_password and check_password_hash(settings.app_password, password):
+            session['authenticated'] = True
+            return redirect(url_for('index'))
+        error = 'Incorrect password.'
+    return render_template('login.html', error=error)
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
 
 # Initialize database
 db.init_app(app)
@@ -41,11 +77,19 @@ with app.app_context():
             conn.commit()
         print("✅ Added anylist_list_id column to shopping_items table")
 
+    settings_columns = [col['name'] for col in inspector.get_columns('settings')]
+    if 'app_password' not in settings_columns:
+        with db.engine.connect() as conn:
+            conn.execute(db.text('ALTER TABLE settings ADD COLUMN app_password VARCHAR(255)'))
+            conn.commit()
+
 
 @app.route('/')
 def index():
     """Render the main shopping list page"""
-    return render_template('index.html')
+    settings = Settings.query.first()
+    has_password = bool(settings and settings.app_password)
+    return render_template('index.html', has_password=has_password)
 
 
 @app.route('/settings')
@@ -414,6 +458,27 @@ def save_settings():
     db.session.commit()
     
     return jsonify(settings.to_dict())
+
+
+@app.route('/api/settings/password', methods=['POST'])
+def set_app_password():
+    """Set or clear the app login password"""
+    data = request.json
+    new_password = data.get('password', '').strip()
+
+    settings = Settings.query.first()
+    if not settings:
+        settings = Settings()
+        db.session.add(settings)
+
+    settings.app_password = generate_password_hash(new_password) if new_password else None
+    db.session.commit()
+
+    # If password was cleared, drop the current session so the page stays accessible
+    if not new_password:
+        session.clear()
+
+    return jsonify({'success': True, 'has_password': bool(new_password)})
 
 
 @app.route('/api/add-to-cart', methods=['POST'])
