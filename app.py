@@ -174,8 +174,11 @@ def shop_proxy(path):
     # Read or persist the shopping session id via cookie
     session_id = request.args.get('_sid') or request.cookies.get('interact_session_id', '')
 
-    target = _SHOP_BASE + '/' + path
-    params = {k: v for k, v in request.args.items(multi=True) if k != '_sid'}
+    # Pass the raw query string through unchanged, just strip our _sid param.
+    # Rebuilding via request.args re-encodes bracket-style keys and breaks the shop.
+    raw_qs = request.query_string.decode('utf-8', errors='replace')
+    clean_qs = '&'.join(p for p in raw_qs.split('&') if p and not p.startswith('_sid='))
+    target = _SHOP_BASE + '/' + path + ('?' + clean_qs if clean_qs else '')
 
     fwd_headers = {k: v for k, v in request.headers
                    if k.lower() not in _DROP_REQ_HEADERS}
@@ -193,7 +196,6 @@ def shop_proxy(path):
             method=request.method,
             url=target,
             headers=fwd_headers,
-            params=params,
             data=request.get_data(),
             cookies=shop_cookies,
             allow_redirects=False,
