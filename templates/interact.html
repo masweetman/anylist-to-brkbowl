@@ -95,6 +95,35 @@
             box-shadow: 0 3px 8px rgba(0,0,0,0.3);
             white-space: nowrap;
         }
+
+        #ios-panel {
+            flex: 1;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            background: #f5f5f5;
+            padding: 30px;
+            text-align: center;
+        }
+        #ios-panel p {
+            color: #555;
+            font-size: 15px;
+            line-height: 1.5;
+            max-width: 320px;
+        }
+        #open-shop-btn {
+            background: #3949ab;
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        #open-shop-btn:hover { background: #303f9f; }
     </style>
 </head>
 <body>
@@ -123,16 +152,38 @@
         <button id="return-btn" onclick="window.location.href='/'">Return to Shopping List</button>
     </div>
 
+    <div id="ios-panel">
+        <p id="ios-msg">Tap below to open the shop, then switch between tabs to search and add items.</p>
+        <button id="open-shop-btn">Open Berkeley Bowl Shop</button>
+    </div>
+
     <div id="error-toast"></div>
 
     <script>
         const HEARTBEAT_INTERVAL = 5000;
         let sessionId = null;
+        let shopWindow = null;
+        let isIOSDevice = false;
+        let currentItemUrl = null;
+        let currentItem = null;
 
         async function init() {
             const params = new URLSearchParams(window.location.search);
             sessionId = params.get('session_id');
             if (!sessionId) { showError('No session ID provided'); return; }
+
+            isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                          (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+            document.getElementById('open-shop-btn').addEventListener('click', () => {
+                if (currentItemUrl) {
+                    shopWindow = window.open(currentItemUrl, 'berkeleybowl');
+                    document.getElementById('ios-msg').textContent =
+                        'Shop is open in another tab. Switch to it to search, then come back here to advance.';
+                    document.getElementById('open-shop-btn').textContent = 'Re-open Shop';
+                }
+            });
+
             startHeartbeat();
             loadItem();
         }
@@ -160,73 +211,96 @@
                 const status = await res.json();
 
                 if (status.status === 'complete') {
+                    if (shopWindow && !shopWindow.closed) shopWindow.close();
+                    document.getElementById('toolbar').style.display = 'none';
                     showView('completion-screen');
                     return;
                 }
 
                 const item = status.item;
+                currentItem = item;
                 const url = status.status === 'ready'
                     ? status.url
                     : `https://shop.heinzcatering.berkeleybowl.com/search?filter%5Betext%5D=${btoa(unescape(encodeURIComponent(status.search_query)))}&filter%5Bwidget%5D=1`;
+                currentItemUrl = url;
 
                 document.getElementById('item-name').textContent = item.name;
                 document.getElementById('progress').textContent = `${status.item_number} / ${status.total_items}`;
 
-                const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-                              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
-                if (isIOS) {
-                    // On iOS, third-party cookies are blocked inside iframes.
-                    // Navigate this tab straight to the shop through our reverse proxy;
-                    // the proxy injects the floating overlay on every page.
-                    const shopUrl = url.startsWith('https://shop.heinzcatering.berkeleybowl.com')
-                        ? url.slice('https://shop.heinzcatering.berkeleybowl.com'.length)
-                        : (url.startsWith('/') ? url : '/');
-                    const sep = shopUrl.includes('?') ? '&' : '?';
-                    window.location.href = `/shop-proxy${shopUrl}${sep}_sid=${sessionId}`;
-                    return;
+                if (isIOSDevice) {
+                    // On iOS, third-party cookies are blocked in iframes and the
+                    // reverse proxy can't handle the shop SPA. Instead, open the
+                    // shop in a separate tab and keep this page as the control panel.
+                    if (shopWindow && !shopWindow.closed) {
+                        try { shopWindow.location.href = url; } catch (e) { /* cross-origin nav failed */ }
+                        document.getElementById('ios-msg').textContent =
+                            'Shop tab updated with the next item. Switch to it to search.';
+                        document.getElementById('open-shop-btn').textContent = 'Re-open Shop';
+                    } else {
+                        document.getElementById('ios-msg').textContent =
+                            'Tap below to open the shop, then switch between tabs to search and add items.';
+                        document.getElementById('open-shop-btn').textContent = 'Open Berkeley Bowl Shop';
+                    }
+                    showView('ios-panel');
+                } else {
+                    const frame = document.getElementById('site-frame');
+                    frame.src = url;
+                    showView('site-frame');
                 }
-
-                const frame = document.getElementById('site-frame');
-                frame.src = url;
-                showView('site-frame');
 
                 const addedBtn = document.getElementById('added-btn');
                 const skipBtn  = document.getElementById('skip-btn');
                 addedBtn.disabled = false;
                 skipBtn.disabled  = false;
 
-                const done = async (skipped) => {
+                addedBtn.onclick = async () => {
                     addedBtn.disabled = true;
                     skipBtn.disabled  = true;
 
-                    if (skipped) {
-                        await fetch(`/api/interact/item-skip/${sessionId}`, { method: 'POST' });
-                    } else {
-                        // Try to capture canonical URL from iframe (desktop only; cross-origin blocked on iOS)
-                        let productUrl = url;
+                    let productUrl = currentItemUrl;
+                    if (!isIOSDevice) {
                         try {
                             const frame = document.getElementById('site-frame');
                             const canonical = frame.contentDocument.querySelector('link[rel="canonical"]');
                             if (canonical && canonical.href && canonical.href.includes('/product')) {
                                 productUrl = canonical.href;
                             }
-                        } catch (e) { /* cross-origin blocked – use initial url */ }
-
-                        await fetch(`/api/interact/item-complete/${sessionId}`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ item_id: item.id, product_url: productUrl, cart_count_changed: true })
-                        });
+                        } catch (e) { /* cross-origin blocked */ }
                     }
 
-                    // Reload this page to fetch the next item
-                    window.location.href = `/interact?session_id=${sessionId}`;
+                    await fetch(`/api/interact/item-complete/${sessionId}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ item_id: currentItem.id, product_url: productUrl, cart_count_changed: true })
+                    });
+
+                    if (isIOSDevice) {
+                        loadItem();
+                    } else {
+                        window.location.href = `/interact?session_id=${sessionId}`;
+                    }
                 };
 
-                addedBtn.onclick = () => done(false);
-                skipBtn.onclick  = () => done(true);
-                document.getElementById('cancel-btn').onclick = () => { window.close(); };
+                skipBtn.onclick = async () => {
+                    addedBtn.disabled = true;
+                    skipBtn.disabled  = true;
+                    await fetch(`/api/interact/item-skip/${sessionId}`, { method: 'POST' });
+
+                    if (isIOSDevice) {
+                        loadItem();
+                    } else {
+                        window.location.href = `/interact?session_id=${sessionId}`;
+                    }
+                };
+
+                document.getElementById('cancel-btn').onclick = () => {
+                    if (shopWindow && !shopWindow.closed) shopWindow.close();
+                    if (isIOSDevice) {
+                        window.location.href = '/';
+                    } else {
+                        window.close();
+                    }
+                };
 
                 document.getElementById('toolbar').style.display = 'flex';
 
@@ -236,7 +310,7 @@
         }
 
         function showView(id) {
-            ['loading-screen', 'site-frame', 'completion-screen'].forEach(v => {
+            ['loading-screen', 'site-frame', 'completion-screen', 'ios-panel'].forEach(v => {
                 const el = document.getElementById(v);
                 if (!el) return;
                 if (v === id) {
