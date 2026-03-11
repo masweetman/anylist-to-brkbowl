@@ -10,13 +10,12 @@ import time
 import pytest
 from unittest.mock import patch, MagicMock
 from werkzeug.security import generate_password_hash
-from database import db, ShoppingItem, Settings
-from app import _sessions, _sessions_lock
+from database import db, ShoppingItem, Settings, InteractSession
 
 
 def _cleanup_session(session_id):
-    with _sessions_lock:
-        _sessions.pop(session_id, None)
+    InteractSession.query.filter_by(id=session_id).delete()
+    db.session.commit()
 
 
 # ---------------------------------------------------------------------------

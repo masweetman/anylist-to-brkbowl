@@ -10,8 +10,7 @@ import json
 import time
 import uuid
 import pytest
-from database import db, ShoppingItem, Settings
-from app import _sessions, _sessions_lock
+from database import db, ShoppingItem, Settings, InteractSession
 
 
 # ---------------------------------------------------------------------------
@@ -19,21 +18,23 @@ from app import _sessions, _sessions_lock
 # ---------------------------------------------------------------------------
 
 def _make_session(items, current_index=0):
-    """Insert a session directly into _sessions and return its ID."""
+    """Insert a session directly into the database and return its ID."""
     session_id = str(uuid.uuid4())
-    with _sessions_lock:
-        _sessions[session_id] = {
-            "items": items,
-            "current_index": current_index,
-            "state": "running",
-            "last_heartbeat": time.time(),
-        }
+    sess = InteractSession(
+        id=session_id,
+        items=items,
+        current_index=current_index,
+        state='running',
+        last_heartbeat=time.time(),
+    )
+    db.session.add(sess)
+    db.session.commit()
     return session_id
 
 
 def _cleanup_session(session_id):
-    with _sessions_lock:
-        _sessions.pop(session_id, None)
+    InteractSession.query.filter_by(id=session_id).delete()
+    db.session.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -95,10 +96,10 @@ class TestInteractStatus:
                   "anylist_item_id": None, "anylist_list_id": None, "complete": False}]
         sid = _make_session(items)
         try:
-            old_hb = _sessions[sid]["last_heartbeat"]
+            old_hb = InteractSession.query.get(sid).last_heartbeat
             time.sleep(0.01)
             client.get(f"/api/interact/status/{sid}")
-            new_hb = _sessions[sid]["last_heartbeat"]
+            new_hb = InteractSession.query.get(sid).last_heartbeat
             assert new_hb >= old_hb
         finally:
             _cleanup_session(sid)
@@ -415,10 +416,10 @@ class TestInteractHeartbeat:
                   "anylist_item_id": None, "anylist_list_id": None, "complete": False}]
         sid = _make_session(items)
         try:
-            old_hb = _sessions[sid]["last_heartbeat"]
+            old_hb = InteractSession.query.get(sid).last_heartbeat
             time.sleep(0.01)
             client.post(f"/api/interact/heartbeat/{sid}")
-            assert _sessions[sid]["last_heartbeat"] >= old_hb
+            assert InteractSession.query.get(sid).last_heartbeat >= old_hb
         finally:
             _cleanup_session(sid)
 
@@ -462,15 +463,15 @@ class TestAddToCart:
         sid = data["session_id"]
         _cleanup_session(sid)
 
-    def test_session_stored_in_sessions_dict(self, client, app, sample_items):
+    def test_session_stored_in_database(self, client, app, sample_items):
         resp = client.post("/api/add-to-cart",
                            data=json.dumps({}), content_type="application/json")
         sid = resp.get_json()["session_id"]
         try:
-            with _sessions_lock:
-                assert sid in _sessions
-                assert _sessions[sid]["current_index"] == 0
-                assert _sessions[sid]["state"] == "running"
+            sess = InteractSession.query.get(sid)
+            assert sess is not None
+            assert sess.current_index == 0
+            assert sess.state == "running"
         finally:
             _cleanup_session(sid)
 
@@ -490,8 +491,8 @@ class TestAddToCart:
                            data=json.dumps({}), content_type="application/json")
         sid = resp.get_json()["session_id"]
         try:
-            with _sessions_lock:
-                names = [i["name"] for i in _sessions[sid]["items"]]
+            sess = InteractSession.query.get(sid)
+            names = [i["name"] for i in sess.items]
             assert "Carrots" not in names
             assert "Dates" not in names
             assert "Apples" in names

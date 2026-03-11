@@ -1,3 +1,4 @@
+import json
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 
@@ -51,3 +52,27 @@ class Settings(db.Model):
             'has_password': bool(self.app_password),
             'updated_at': self.updated_at.isoformat()
         }
+
+
+class InteractSession(db.Model):
+    """Database model for interactive add-to-cart sessions.
+
+    Stored in the DB (rather than in-memory) so that gunicorn workers
+    all share the same state.
+    """
+    __tablename__ = 'interact_sessions'
+
+    id = db.Column(db.String(36), primary_key=True)  # UUID
+    items_json = db.Column(db.Text, nullable=False)   # JSON array of item dicts
+    current_index = db.Column(db.Integer, default=0)
+    state = db.Column(db.String(20), default='running')
+    last_heartbeat = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def items(self):
+        return json.loads(self.items_json)
+
+    @items.setter
+    def items(self, value):
+        self.items_json = json.dumps(value)

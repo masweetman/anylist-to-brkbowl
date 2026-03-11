@@ -12,25 +12,26 @@ import uuid
 import threading
 import pytest
 from unittest.mock import patch, MagicMock
-from database import db, ShoppingItem, Settings
-from app import _sessions, _sessions_lock
+from database import db, ShoppingItem, Settings, InteractSession
 
 
 def _make_session(items, current_index=0):
     session_id = str(uuid.uuid4())
-    with _sessions_lock:
-        _sessions[session_id] = {
-            "items": items,
-            "current_index": current_index,
-            "state": "running",
-            "last_heartbeat": time.time(),
-        }
+    sess = InteractSession(
+        id=session_id,
+        items=items,
+        current_index=current_index,
+        state='running',
+        last_heartbeat=time.time(),
+    )
+    db.session.add(sess)
+    db.session.commit()
     return session_id
 
 
 def _cleanup_session(session_id):
-    with _sessions_lock:
-        _sessions.pop(session_id, None)
+    InteractSession.query.filter_by(id=session_id).delete()
+    db.session.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -372,8 +373,7 @@ class TestInteractSessionEdgeCases:
                         data=json.dumps({"product_url": ""}), content_type="application/json")
             client.post(f"/api/interact/item-complete/{sid}",
                         data=json.dumps({"product_url": ""}), content_type="application/json")
-            with _sessions_lock:
-                assert _sessions[sid]["current_index"] == 2
+            assert InteractSession.query.get(sid).current_index == 2
         finally:
             _cleanup_session(sid)
 
@@ -474,8 +474,8 @@ class TestConcurrentAccess:
             statuses = [r[1] for r in results]
             assert 200 in statuses
             # The index should be at most 2 (not negative or wildly wrong)
-            with _sessions_lock:
-                idx = _sessions.get(sid, {}).get("current_index", 0)
+            sess = InteractSession.query.get(sid)
+            idx = sess.current_index if sess else 0
             assert 0 <= idx <= 2
         finally:
             _cleanup_session(sid)

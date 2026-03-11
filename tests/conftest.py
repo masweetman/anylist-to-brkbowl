@@ -35,8 +35,8 @@ _pyanylist_stub.AnyListClient = _StubAnyListClient
 sys.modules["pyanylist"] = _pyanylist_stub
 
 # Now it is safe to import the app
-from app import app as flask_app, _sessions, _sessions_lock  # noqa: E402
-from database import db, ShoppingItem, Settings  # noqa: E402
+from app import app as flask_app  # noqa: E402
+from database import db, ShoppingItem, Settings, InteractSession  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ def sample_items(app):
 @pytest.fixture()
 def anylist_session(app, sample_items):
     """
-    A pre-created interactive session in _sessions, seeded with the
+    A pre-created interactive session in the database, seeded with the
     incomplete items from sample_items.
     """
     import uuid, time
@@ -142,17 +142,19 @@ def anylist_session(app, sample_items):
             for i in incomplete
         ]
 
-    session_id = str(uuid.uuid4())
-    with _sessions_lock:
-        _sessions[session_id] = {
-            "items": item_list,
-            "current_index": 0,
-            "state": "running",
-            "last_heartbeat": time.time(),
-        }
+        session_id = str(uuid.uuid4())
+        sess = InteractSession(
+            id=session_id,
+            items=item_list,
+            current_index=0,
+            state='running',
+            last_heartbeat=time.time(),
+        )
+        db.session.add(sess)
+        db.session.commit()
 
     yield session_id
 
-    # Cleanup
-    with _sessions_lock:
-        _sessions.pop(session_id, None)
+    with app.app_context():
+        InteractSession.query.filter_by(id=session_id).delete()
+        db.session.commit()
