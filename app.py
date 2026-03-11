@@ -49,8 +49,55 @@ def _rewrite_url(url: str) -> str:
     return url
 
 
+def _build_spa_compat_script() -> str:
+    """Script injected into <head> BEFORE the shop's own JS.
+
+    The shop is a single-page app whose client-side router reads
+    window.location.pathname.  Through the proxy, that path starts with
+    /shop-proxy/ which the router doesn't recognise → 404.
+
+    This script:
+      1. Strips /shop-proxy from the browser URL via history.replaceState
+         so the SPA router sees the real path (e.g. /search).
+      2. Intercepts fetch() and XMLHttpRequest to add /shop-proxy back to
+         root-relative API calls so they still route through our proxy.
+      3. Does NOT intercept pushState — SPA client-side navigations keep
+         working with clean URLs; a Flask catch-all handles full navigations.
+    """
+    return """<script>(function(){
+var P='/shop-proxy';
+var p=location.pathname;
+if(p.indexOf(P)===0){
+  history.replaceState(null,'',p.slice(P.length)||'/'+location.search+location.hash);
+}
+var _f=window.fetch;
+window.fetch=function(u,o){
+  if(typeof u==='string'&&u.charAt(0)==='/'&&u.indexOf(P)!==0&&u.indexOf('/api/interact')!==0){u=P+u;}
+  return _f.call(this,u,o);
+};
+var _x=XMLHttpRequest.prototype.open;
+XMLHttpRequest.prototype.open=function(){
+  var u=arguments[1];
+  if(typeof u==='string'&&u.charAt(0)==='/'&&u.indexOf(P)!==0&&u.indexOf('/api/interact')!==0){arguments[1]=P+u;}
+  return _x.apply(this,arguments);
+};
+})();</script>"""
+
+
 def _rewrite_html(html: str, session_id: str) -> str:
     """Rewrite URLs in HTML and inject the floating control-panel overlay."""
+
+    # 0. Inject SPA-compat script at top of <head> — MUST run before the shop's
+    #    JS router initialises, otherwise the router sees /shop-proxy/search
+    #    instead of /search and renders a 404.
+    spa_compat = _build_spa_compat_script()
+    head_inject = spa_compat
+    if '<head>' in html:
+        html = html.replace('<head>', '<head>' + head_inject, 1)
+    elif '<head ' in html:
+        idx = html.index('<head ')
+        end = html.index('>', idx) + 1
+        html = html[:end] + head_inject + html[end:]
 
     # 1. Absolute shop URLs in href/src/action attributes
     html = re.sub(
@@ -881,6 +928,26 @@ def import_csv():
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Catch-all: proxy unrecognised paths to the shop when a shopping session is
+# active.  This handles SPA navigations that use clean URLs (e.g. /product/123)
+# after the /shop-proxy prefix has been stripped by the injected JS.
+# Registered LAST so every explicit Flask route takes priority.
+# ---------------------------------------------------------------------------
+_FLASK_PREFIXES = ('api/', 'static/', 'shop-proxy/')
+_FLASK_EXACT = frozenset(['', 'settings', 'login', 'logout', 'interact', 'favicon.ico'])
+
+
+@app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH'])
+def catch_all_proxy(path):
+    if path in _FLASK_EXACT or any(path.startswith(p) for p in _FLASK_PREFIXES):
+        return jsonify({'error': 'Not found'}), 404
+    if not request.cookies.get('interact_session_id'):
+        return jsonify({'error': 'Not found'}), 404
+    # Delegate to the shop proxy with the same query string
+    return shop_proxy(path)
 
 
 if __name__ == '__main__':
