@@ -32,7 +32,7 @@ _SHOP_COOKIE_PREFIX = '_shopck_'   # shop cookies stored on our domain with this
 
 # Headers we must not forward upstream or downstream
 _DROP_REQ_HEADERS  = frozenset(['host', 'content-length', 'transfer-encoding',
-                                 'connection', 'accept-encoding'])
+                                 'connection', 'accept-encoding', 'cookie'])
 # CSP / x-frame-options would block our injected script; drop them
 _DROP_RESP_HEADERS = frozenset(['content-encoding', 'transfer-encoding', 'connection',
                                  'content-security-policy', 'x-frame-options',
@@ -183,6 +183,11 @@ def shop_proxy(path):
     fwd_headers = {k: v for k, v in request.headers
                    if k.lower() not in _DROP_REQ_HEADERS}
     fwd_headers['Host'] = 'shop.heinzcatering.berkeleybowl.com'
+    # Ensure a real browser User-Agent so the shop doesn't 403 us
+    if 'User-Agent' not in fwd_headers or 'python' in fwd_headers.get('User-Agent', '').lower():
+        fwd_headers['User-Agent'] = ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                                     'AppleWebKit/537.36 (KHTML, like Gecko) '
+                                     'Chrome/120.0.0.0 Safari/537.36')
 
     # Extract shop cookies stored on our domain (strip our prefix)
     shop_cookies = {
