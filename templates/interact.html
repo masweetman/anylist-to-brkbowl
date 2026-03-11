@@ -124,6 +124,111 @@
             cursor: pointer;
         }
         #open-shop-btn:hover { background: #303f9f; }
+
+        /* ── Search-results panel (iOS) ── */
+        #search-results-panel {
+            flex: 1;
+            display: none;
+            flex-direction: column;
+            background: #f5f5f5;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        #search-loading {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            color: #777;
+            font-size: 14px;
+            padding: 40px;
+        }
+        #search-header {
+            padding: 12px 14px 6px;
+            font-size: 12px;
+            color: #888;
+            flex-shrink: 0;
+        }
+        #search-results-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            padding: 6px 12px 12px;
+        }
+        .result-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            overflow: hidden;
+            cursor: pointer;
+            border: 2px solid transparent;
+            display: flex;
+            flex-direction: column;
+            transition: border-color 0.12s, box-shadow 0.12s;
+        }
+        .result-card.selected {
+            border-color: #3949ab;
+            box-shadow: 0 2px 8px rgba(57,73,171,0.25);
+        }
+        .result-card img {
+            width: 100%;
+            aspect-ratio: 1;
+            object-fit: contain;
+            background: #f9f9f9;
+            padding: 8px;
+        }
+        .rc-name {
+            font-size: 11px;
+            font-weight: 600;
+            color: #333;
+            padding: 6px 8px 2px;
+            line-height: 1.3;
+        }
+        .rc-price {
+            font-size: 11px;
+            color: #666;
+            padding: 0 8px 6px;
+        }
+        .rc-open {
+            display: block;
+            text-align: center;
+            padding: 7px 6px;
+            background: #e8eaf6;
+            color: #3949ab;
+            font-size: 12px;
+            font-weight: 600;
+            text-decoration: none;
+            margin-top: auto;
+        }
+        .rc-open:active { background: #c5cae9; }
+        #search-no-results {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            padding: 40px 20px;
+            color: #666;
+            font-size: 14px;
+            text-align: center;
+            flex: 1;
+        }
+        #search-fallback {
+            padding: 8px 14px 14px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+        .secondary-btn {
+            background: transparent;
+            border: 1px solid #bbb;
+            color: #666;
+            padding: 8px 18px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .secondary-btn:active { background: #eee; }
     </style>
 </head>
 <body>
@@ -155,6 +260,22 @@
     <div id="ios-panel">
         <p id="ios-msg">Tap below to open the shop, then switch between tabs to search and add items.</p>
         <button id="open-shop-btn">Open Berkeley Bowl Shop</button>
+    </div>
+
+    <div id="search-results-panel">
+        <div id="search-loading">
+            <div class="spinner"></div>
+            <div>Searching store&hellip;</div>
+        </div>
+        <div id="search-header"></div>
+        <div id="search-results-grid"></div>
+        <div id="search-no-results">
+            <div>No results found in store.</div>
+            <button class="secondary-btn" onclick="openShopFallback()">Open Berkeley Bowl Shop</button>
+        </div>
+        <div id="search-fallback">
+            <button class="secondary-btn" onclick="openShopFallback()">Open Shop Directly</button>
+        </div>
     </div>
 
     <div id="error-toast"></div>
@@ -228,20 +349,10 @@
                 document.getElementById('progress').textContent = `${status.item_number} / ${status.total_items}`;
 
                 if (isIOSDevice) {
-                    // On iOS, third-party cookies are blocked in iframes and the
-                    // reverse proxy can't handle the shop SPA. Instead, open the
-                    // shop in a separate tab and keep this page as the control panel.
-                    if (shopWindow && !shopWindow.closed) {
-                        try { shopWindow.location.href = url; } catch (e) { /* cross-origin nav failed */ }
-                        document.getElementById('ios-msg').textContent =
-                            'Shop tab updated with the next item. Switch to it to search.';
-                        document.getElementById('open-shop-btn').textContent = 'Re-open Shop';
-                    } else {
-                        document.getElementById('ios-msg').textContent =
-                            'Tap below to open the shop, then switch between tabs to search and add items.';
-                        document.getElementById('open-shop-btn').textContent = 'Open Berkeley Bowl Shop';
-                    }
-                    showView('ios-panel');
+                    // On iOS, show an in-app search results panel powered by the
+                    // server-side scraper instead of bouncing to an external tab.
+                    showView('search-results-panel');
+                    loadSearchResults(item.name, url);
                 } else {
                     const frame = document.getElementById('site-frame');
                     frame.src = url;
@@ -310,7 +421,7 @@
         }
 
         function showView(id) {
-            ['loading-screen', 'site-frame', 'completion-screen', 'ios-panel'].forEach(v => {
+            ['loading-screen', 'site-frame', 'completion-screen', 'ios-panel', 'search-results-panel'].forEach(v => {
                 const el = document.getElementById(v);
                 if (!el) return;
                 if (v === id) {
@@ -319,6 +430,95 @@
                     el.style.display = 'none';
                 }
             });
+        }
+
+        async function loadSearchResults(query, fallbackUrl) {
+            const loadingEl   = document.getElementById('search-loading');
+            const headerEl    = document.getElementById('search-header');
+            const gridEl      = document.getElementById('search-results-grid');
+            const noResultsEl = document.getElementById('search-no-results');
+            const fallbackEl  = document.getElementById('search-fallback');
+
+            loadingEl.style.display   = 'flex';
+            headerEl.style.display    = 'none';
+            gridEl.style.display      = 'none';
+            noResultsEl.style.display = 'none';
+            fallbackEl.style.display  = 'none';
+
+            try {
+                const res  = await fetch(`/api/brkbowl/search?q=${encodeURIComponent(query)}`);
+                const data = await res.json();
+                loadingEl.style.display = 'none';
+
+                if (!res.ok || !data.results || data.results.length === 0) {
+                    noResultsEl.style.display = 'flex';
+                    return;
+                }
+
+                const n = data.results.length;
+                headerEl.textContent   = `${n} result${n !== 1 ? 's' : ''} for \u201c${query}\u201d`;
+                headerEl.style.display = 'block';
+
+                gridEl.innerHTML = '';
+                for (const p of data.results) {
+                    const card = document.createElement('div');
+                    card.className = 'result-card';
+                    card.addEventListener('click', () => selectProduct(p.product_url, card));
+
+                    if (p.image_url && p.image_url.startsWith('http')) {
+                        const img = document.createElement('img');
+                        img.src     = p.image_url;
+                        img.alt     = '';
+                        img.loading = 'lazy';
+                        card.appendChild(img);
+                    }
+
+                    const nameEl = document.createElement('div');
+                    nameEl.className   = 'rc-name';
+                    nameEl.textContent = p.name;
+                    card.appendChild(nameEl);
+
+                    if (p.price) {
+                        const priceEl = document.createElement('div');
+                        priceEl.className   = 'rc-price';
+                        priceEl.textContent = p.price;
+                        card.appendChild(priceEl);
+                    }
+
+                    if (p.product_url) {
+                        const link = document.createElement('a');
+                        link.className   = 'rc-open';
+                        link.href        = p.product_url;
+                        link.target      = '_blank';
+                        link.rel         = 'noopener noreferrer';
+                        link.textContent = 'Open \u2192';
+                        link.addEventListener('click', e => {
+                            e.stopPropagation();
+                            selectProduct(p.product_url, card);
+                        });
+                        card.appendChild(link);
+                    }
+
+                    gridEl.appendChild(card);
+                }
+
+                gridEl.style.display     = 'grid';
+                fallbackEl.style.display = 'block';
+
+            } catch (e) {
+                loadingEl.style.display   = 'none';
+                noResultsEl.style.display = 'flex';
+            }
+        }
+
+        function selectProduct(productUrl, cardEl) {
+            document.querySelectorAll('.result-card').forEach(c => c.classList.remove('selected'));
+            if (cardEl) cardEl.classList.add('selected');
+            currentItemUrl = productUrl;
+        }
+
+        function openShopFallback() {
+            shopWindow = window.open(currentItemUrl, 'berkeleybowl');
         }
 
         document.addEventListener('DOMContentLoaded', init);

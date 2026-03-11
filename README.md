@@ -35,6 +35,11 @@ cd /srv/anylist-to-brkbowl
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/pip install gunicorn
+
+# Install the Chromium browser used by the in-app product scraper
+.venv/bin/playwright install chromium
+# Also install the required system libraries (first time only)
+.venv/bin/playwright install-deps chromium
 ```
 
 ### 4. Configure environment variables
@@ -127,6 +132,8 @@ sudo systemctl reload nginx
 
 The app is now accessible at `http://your.domain.com`.
 
+> **iOS in-app search**: The interactive cart assistant uses a server-side headless browser (Playwright/Chromium) to search Berkeley Bowl and show product results directly inside the app, so you never need to switch tabs just to find an item. The `/api/brkbowl/search` endpoint powers this. Each search launches a headless Chromium instance (~5–15 s), so consider increasing gunicorn workers to 4+ (`--workers 4`) to keep the app responsive during searches.
+
 ### 7. Enable HTTPS with Let's Encrypt (recommended)
 
 ```bash
@@ -148,11 +155,12 @@ Certbot updates your Nginx config automatically and sets up auto-renewal.
 ### Add items to your Berkeley Bowl cart
 
 1. Click **Add all to cart**. A new tab opens with the shopping assistant.
-2. For each incomplete item, Berkeley Bowl loads in the tab — either directly on the product page (if a URL is saved) or on a search results page.
-3. Add the item to your cart, then click **✓ Added to Cart** to move to the next item.
-4. Click **Skip** to leave an item for later without marking it complete.
-5. Click **✕ Cancel** to end the session and close the tab.
-6. When finished, each completed item is crossed off in AnyList automatically.
+2. For each incomplete item:
+   - **Desktop/Android**: Berkeley Bowl loads in an iframe — either directly on the product page or on a search results page.
+   - **iOS**: Product search results are fetched by the server and displayed in-app as a scrollable grid. Tap a product card to select it (highlights in blue), then tap **Open →** to open that specific product page in a new tab. Add it to your cart there, switch back, and tap **✓ Added to Cart**.
+3. Click **Skip** to leave an item for later without marking it complete.
+4. Click **✕ Cancel** to end the session.
+5. When finished, each completed item is crossed off in AnyList automatically.
 
 ### Manage items manually
 
@@ -169,6 +177,7 @@ Certbot updates your Nginx config automatically and sets up auto-renewal.
 anylist-to-brkbowl/
 ├── app.py              # Flask application and API routes
 ├── database.py         # SQLAlchemy models
+├── scraper.py          # Playwright-based Berkeley Bowl product scraper
 ├── requirements.txt    # Python dependencies
 ├── .env                # Environment variables
 ├── templates/
@@ -190,5 +199,9 @@ anylist-to-brkbowl/
 **App won't start** — Check logs with `sudo journalctl -u anylist-brkbowl -n 50`.
 
 **Berkeley Bowl blocks the iframe** — Some browsers or network configurations may prevent embedding. Check the browser console for errors.
+
+**iOS search shows "No results found"** — Playwright may not be installed or Chromium may be missing. SSH into the server and run `.venv/bin/playwright install chromium`. Also check server logs (`sudo journalctl -u anylist-brkbowl -n 50`) for the specific error. If Playwright is unavailable, the panel shows a fallback button to open the shop in a new tab.
+
+**iOS search is slow** — Each search starts a headless Chromium session (~5–15 s). This is normal. Results are cached for 5 minutes.
 
 **Reset the database** — Delete `instance/shopping_list.db` and restart the app. The schema is recreated automatically.

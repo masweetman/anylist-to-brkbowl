@@ -4,3 +4,6 @@ pyanylist==0.0.5
 python-dotenv==1.0.0
 pytest==8.3.5
 werkzeug==2.3.7
+# Headless browser scraper for iOS in-app product search
+# After installing, run: playwright install chromium
+playwright

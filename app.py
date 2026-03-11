@@ -648,5 +648,26 @@ def import_csv():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/brkbowl/search')
+def brkbowl_search():
+    """Proxy Berkeley Bowl product search via headless browser.
+
+    Used by the iOS interact panel to show in-app search results instead of
+    bouncing the user to an external tab for every item.
+    """
+    query = request.args.get('q', '').strip()
+    if not query:
+        return jsonify({'error': 'q parameter required'}), 400
+    try:
+        from scraper import search as bb_search
+        results = bb_search(query)
+        return jsonify({'results': results, 'query': query})
+    except RuntimeError as e:
+        # Playwright not installed – client falls back to the external-tab flow
+        return jsonify({'error': str(e), 'results': []}), 503
+    except Exception as e:
+        return jsonify({'error': str(e), 'results': []}), 500
+
+
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
