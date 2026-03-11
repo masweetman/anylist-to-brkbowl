@@ -182,7 +182,8 @@
                     const shopUrl = url.startsWith('https://shop.heinzcatering.berkeleybowl.com')
                         ? url.slice('https://shop.heinzcatering.berkeleybowl.com'.length)
                         : (url.startsWith('/') ? url : '/');
-                    window.location.href = `/shop-proxy${shopUrl}?_sid=${sessionId}`;
+                    const sep = shopUrl.includes('?') ? '&' : '?';
+                    window.location.href = `/shop-proxy${shopUrl}${sep}_sid=${sessionId}`;
                     return;
                 }
 
