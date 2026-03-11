@@ -95,34 +95,6 @@
             box-shadow: 0 3px 8px rgba(0,0,0,0.3);
             white-space: nowrap;
         }
-
-        /* iOS fallback panel (replaces iframe — iOS blocks 3rd-party cookies in iframes) */
-        #ios-panel {
-            flex: 1;
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            background: #f5f5f5;
-            padding: 32px 24px;
-            text-align: center;
-            gap: 18px;
-        }
-        #ios-panel .ios-hint {
-            color: #666;
-            font-size: 14px;
-            line-height: 1.5;
-        }
-        #open-shop-btn {
-            display: inline-block;
-            background: #3949ab;
-            color: white;
-            padding: 14px 28px;
-            border-radius: 6px;
-            text-decoration: none;
-            font-size: 16px;
-            font-weight: 600;
-        }
     </style>
 </head>
 <body>
@@ -144,12 +116,6 @@
     </div>
 
     <iframe id="site-frame" title="Berkeley Bowl" style="display:none"></iframe>
-
-    <!-- Shown instead of iframe on iOS where 3rd-party cookies are blocked -->
-    <div id="ios-panel">
-        <a id="open-shop-btn" href="#" target="_blank">Open Shop &#8594;</a>
-        <p class="ios-hint">After adding the item to your cart,<br>come back here and tap <strong>&#10003; Added to Cart</strong>.</p>
-    </div>
 
     <div id="completion-screen">
         <h1>&#10003; All Done!</h1>
@@ -210,13 +176,19 @@
                               (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
                 if (isIOS) {
-                    document.getElementById('open-shop-btn').href = url;
-                    showView('ios-panel');
-                } else {
-                    const frame = document.getElementById('site-frame');
-                    frame.src = url;
-                    showView('site-frame');
+                    // On iOS, third-party cookies are blocked inside iframes.
+                    // Navigate this tab straight to the shop through our reverse proxy;
+                    // the proxy injects the floating overlay on every page.
+                    const shopUrl = url.startsWith('https://shop.heinzcatering.berkeleybowl.com')
+                        ? url.slice('https://shop.heinzcatering.berkeleybowl.com'.length)
+                        : (url.startsWith('/') ? url : '/');
+                    window.location.href = `/shop-proxy${shopUrl}?_sid=${sessionId}`;
+                    return;
                 }
+
+                const frame = document.getElementById('site-frame');
+                frame.src = url;
+                showView('site-frame');
 
                 const addedBtn = document.getElementById('added-btn');
                 const skipBtn  = document.getElementById('skip-btn');
@@ -263,7 +235,7 @@
         }
 
         function showView(id) {
-            ['loading-screen', 'site-frame', 'ios-panel', 'completion-screen'].forEach(v => {
+            ['loading-screen', 'site-frame', 'completion-screen'].forEach(v => {
                 const el = document.getElementById(v);
                 if (!el) return;
                 if (v === id) {

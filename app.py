@@ -1,10 +1,12 @@
 import csv
 import os
+import re
 import time
 import threading
 from io import StringIO, BytesIO
-from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, Response
 from werkzeug.security import generate_password_hash, check_password_hash
+import requests as http_requests
 from database import db, ShoppingItem, Settings
 from dotenv import load_dotenv
 
@@ -22,10 +24,225 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///shopping_list.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
 
+# ---------------------------------------------------------------------------
+# Shop reverse-proxy constants & helpers
+# ---------------------------------------------------------------------------
+_SHOP_BASE = 'https://shop.heinzcatering.berkeleybowl.com'
+_SHOP_COOKIE_PREFIX = '_shopck_'   # shop cookies stored on our domain with this prefix
+
+# Headers we must not forward upstream or downstream
+_DROP_REQ_HEADERS  = frozenset(['host', 'content-length', 'transfer-encoding',
+                                 'connection', 'accept-encoding'])
+# CSP / x-frame-options would block our injected script; drop them
+_DROP_RESP_HEADERS = frozenset(['content-encoding', 'transfer-encoding', 'connection',
+                                 'content-security-policy', 'x-frame-options',
+                                 'strict-transport-security'])
+
+
+def _rewrite_url(url: str) -> str:
+    """Rewrite an absolute shop URL (or root-relative path) to go through /shop-proxy."""
+    if url.startswith(_SHOP_BASE):
+        suffix = url[len(_SHOP_BASE):]
+        return '/shop-proxy' + (suffix if suffix.startswith('/') else '/' + suffix)
+    if url.startswith('/') and not url.startswith('//'):
+        return '/shop-proxy' + url
+    return url
+
+
+def _rewrite_html(html: str, session_id: str) -> str:
+    """Rewrite URLs in HTML and inject the floating control-panel overlay."""
+
+    # 1. Absolute shop URLs in href/src/action attributes
+    html = re.sub(
+        r'(href|src|action)="(https://shop\.heinzcatering\.berkeleybowl\.com)(/[^"]*|)"',
+        lambda m: f'{m.group(1)}="/shop-proxy{m.group(3) or "/"}"',
+        html,
+    )
+    # 2. Root-relative URLs in href/src/action (skip already-rewritten /shop-proxy ones)
+    html = re.sub(
+        r'(href|src|action)="(/(?!shop-proxy)[^"]*)"',
+        lambda m: f'{m.group(1)}="/shop-proxy{m.group(2)}"',
+        html,
+    )
+    # 3. Absolute shop origin appearing in JS strings / fetch calls
+    html = html.replace(
+        '"' + _SHOP_BASE, '"/shop-proxy'
+    ).replace(
+        "'" + _SHOP_BASE, "'/shop-proxy"
+    )
+
+    # 4. Inject overlay
+    overlay = _build_overlay(session_id)
+    if '</body>' in html:
+        html = html.replace('</body>', overlay + '\n</body>', 1)
+    else:
+        html += '\n' + overlay
+    return html
+
+
+def _rewrite_text(text: str) -> str:
+    """Light URL rewrite for CSS / JS (no overlay injection)."""
+    return text.replace(_SHOP_BASE, '/shop-proxy')
+
+
+def _build_overlay(session_id: str) -> str:
+    sid_json = session_id  # safe: session_id is a hex UUID from secrets.token_hex
+    return f"""<script id="__bb_overlay">(function(){{
+var SID="{sid_json}";
+var SHOP_BASE="{_SHOP_BASE}";
+
+function mk(tag,css,html){{var e=document.createElement(tag);if(css)e.style.cssText=css;if(html)e.innerHTML=html;return e;}}
+function btn(txt,bg,fn){{var b=mk('button','border:none;padding:9px 14px;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;background:'+bg+';color:white;font-family:inherit;',txt);b.onclick=fn;return b;}}
+
+var panel  = mk('div','position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#3949ab;color:white;padding:10px 14px;display:flex;align-items:center;gap:10px;font-family:Segoe UI,sans-serif;box-shadow:0 2px 6px rgba(0,0,0,.3);');
+var info   = mk('div','flex:1;min-width:0;');
+var lbl    = mk('div','font-size:10px;opacity:.7;text-transform:uppercase;letter-spacing:.5px;','Shopping for');
+var iname  = mk('div','font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;','…');
+var prog   = mk('div','font-size:12px;opacity:.7;white-space:nowrap;flex-shrink:0;','');
+var skipB  = btn('Skip','rgba(255,255,255,.18)',doSkip);
+var addB   = btn('✓ Added to Cart','#43a047',doAdded);
+var canB   = btn('✕ Cancel','rgba(255,255,255,.12)',doCancel);
+info.append(lbl,iname);
+panel.append(info,prog,skipB,addB,canB);
+
+function disable(){{skipB.disabled=addB.disabled=true;}}
+
+async function status(){{
+  try{{var r=await fetch('/api/interact/status/'+SID);return r.ok?r.json():null;}}
+  catch(e){{return null;}}
+}}
+
+function toProxy(url){{
+  if(!url)return'/shop-proxy/';
+  if(url.startsWith(SHOP_BASE))return'/shop-proxy'+url.slice(SHOP_BASE.length);
+  if(url.startsWith('/'))return'/shop-proxy'+url;
+  return url;
+}}
+
+async function goNext(){{
+  var s=await status();
+  if(!s||s.status==='complete'){{window.location.href='/';return;}}
+  var url=s.url||(SHOP_BASE+'/search?filter%5Betext%5D='+btoa(unescape(encodeURIComponent(s.search_query)))+'&filter%5Bwidget%5D=1');
+  window.location.href=toProxy(url);
+}}
+
+async function doSkip(){{
+  disable();
+  await fetch('/api/interact/item-skip/'+SID,{{method:'POST'}}).catch(function(){{}});
+  goNext();
+}}
+
+async function doAdded(){{
+  disable();
+  var s=await status();
+  if(!s)return;
+  var productUrl=location.href;
+  var can=document.querySelector('link[rel="canonical"]');
+  if(can&&can.href)productUrl=can.href;
+  await fetch('/api/interact/item-complete/'+SID,{{
+    method:'POST',headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{item_id:s.item.id,product_url:productUrl,cart_count_changed:true}})
+  }}).catch(function(){{}});
+  goNext();
+}}
+
+function doCancel(){{window.location.href='/';}}
+
+setInterval(function(){{fetch('/api/interact/heartbeat/'+SID,{{method:'POST'}}).catch(function(){{}});}},5000);
+
+async function init(){{
+  var s=await status();
+  if(!s)return;
+  if(s.status==='complete'){{window.location.href='/';return;}}
+  iname.textContent=s.item.name;
+  prog.textContent=s.item_number+' / '+s.total_items;
+  document.body.style.marginTop='0';
+  document.body.style.paddingTop='60px';
+  document.body.prepend(panel);
+}}
+
+if(document.readyState==='loading'){{document.addEventListener('DOMContentLoaded',init);}}
+else{{init();}}
+}})();
+</script>"""
+
+
+@app.route('/shop-proxy/', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH'])
+@app.route('/shop-proxy/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH'])
+def shop_proxy(path):
+    """Reverse-proxy the Berkeley Bowl shop and inject the cart overlay."""
+    # Read or persist the shopping session id via cookie
+    session_id = request.args.get('_sid') or request.cookies.get('interact_session_id', '')
+
+    target = _SHOP_BASE + '/' + path
+    params = {k: v for k, v in request.args.items(multi=True) if k != '_sid'}
+
+    fwd_headers = {k: v for k, v in request.headers
+                   if k.lower() not in _DROP_REQ_HEADERS}
+    fwd_headers['Host'] = 'shop.heinzcatering.berkeleybowl.com'
+
+    # Extract shop cookies stored on our domain (strip our prefix)
+    shop_cookies = {
+        k[len(_SHOP_COOKIE_PREFIX):]: v
+        for k, v in request.cookies.items()
+        if k.startswith(_SHOP_COOKIE_PREFIX)
+    }
+
+    try:
+        upstream = http_requests.request(
+            method=request.method,
+            url=target,
+            headers=fwd_headers,
+            params=params,
+            data=request.get_data(),
+            cookies=shop_cookies,
+            allow_redirects=False,
+            timeout=20,
+        )
+    except http_requests.exceptions.RequestException as exc:
+        return jsonify({'error': f'Proxy error: {exc}'}), 502
+
+    ct = upstream.headers.get('Content-Type', '')
+
+    if 'text/html' in ct:
+        body = _rewrite_html(upstream.text, session_id)
+        resp = Response(body, status=upstream.status_code, content_type=ct)
+    elif any(t in ct for t in ('text/css', 'javascript', 'text/plain', 'application/json')):
+        body = _rewrite_text(upstream.text)
+        resp = Response(body, status=upstream.status_code, content_type=ct)
+    else:
+        resp = Response(upstream.content, status=upstream.status_code, content_type=ct)
+
+    # Forward safe response headers
+    for h, v in upstream.headers.items():
+        if h.lower() not in _DROP_RESP_HEADERS:
+            resp.headers[h] = v
+
+    # Rewrite redirect Location header
+    if upstream.status_code in (301, 302, 303, 307, 308):
+        loc = upstream.headers.get('Location', '')
+        resp.headers['Location'] = _rewrite_url(loc)
+
+    # Store shop cookies on our domain (prefixed, first-party)
+    for cookie in upstream.cookies:
+        resp.set_cookie(
+            _SHOP_COOKIE_PREFIX + cookie.name,
+            cookie.value,
+            max_age=cookie._rest.get('Max-Age'),
+            httponly=bool(cookie._rest.get('HttpOnly')),
+            samesite='Lax',
+        )
+
+    # Persist the session_id across proxy navigations
+    if session_id:
+        resp.set_cookie('interact_session_id', session_id, httponly=True, samesite='Lax')
+
+    return resp
+
 
 @app.before_request
 def require_login():
-    if request.endpoint in ('login', 'logout', 'reset_app', 'static'):
+    if request.endpoint in ('login', 'logout', 'reset_app', 'static', 'shop_proxy'):
         return
     settings = Settings.query.first()
     if not (settings and settings.app_password):
