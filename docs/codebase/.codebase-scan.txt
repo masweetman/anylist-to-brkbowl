@@ -1,0 +1,113 @@
+
+=== DIRECTORY TREE (max depth 3, source files only) ===
+.gitignore
+README.md
+app.py
+database.py
+docs
+docs/codebase
+docs/codebase/.codebase-scan.txt
+instance
+instance/shopping_list.db
+requirements.txt
+static
+static/script.js
+static/settings.js
+static/style.css
+templates
+templates/index.html
+templates/interact.html
+templates/login.html
+templates/settings.html
+tests
+tests/__init__.py
+tests/conftest.py
+tests/test_api_anylist.py
+tests/test_api_csv.py
+tests/test_api_interact.py
+tests/test_api_items.py
+tests/test_api_settings_auth.py
+tests/test_edge_adversarial.py
+tests/test_models.py
+tests/test_user_stories.py
+
+=== STACK DETECTION (manifest files) ===
+
+--- requirements.txt ---
+Flask==2.3.3
+Flask-SQLAlchemy==3.0.5
+pyanylist==0.0.5
+python-dotenv==1.0.0
+pytest==8.3.5
+werkzeug==2.3.7
+
+
+=== ENTRY POINTS ===
+Found: app.py
+
+=== LINTING AND FORMATTING CONFIG ===
+No linting or formatting config files found in project root.
+
+=== ENVIRONMENT VARIABLE TEMPLATES ===
+No .env.example or .env.template found. Identify required environment variables by searching the code and config for environment variable reads.
+
+=== TODO / FIXME / HACK (production code only, test dirs excluded) ===
+None found.
+
+=== GIT RECENT COMMITS (last 20) ===
+cc3e345 again
+7572f0b one more try
+ccb2c21 fix?
+152a048 fix?
+5e25142 fix?
+eb666e0 fixed bug?
+8f86baf fix ios?
+8db9336 tried to fix iOS again
+e8fb9fb added tests
+83e77f9 Attempt to fix iOS browser bugs. Remove dead code.
+ad469e0 added password protection
+21e5789 updated readme
+d7e5df8 Changed to better UI
+7f6885d updated gitignore
+e9f2e29 Initial commit
+
+=== HIGH-CHURN FILES (last 90 days, top 20) ===
+None found.
+
+=== MONOREPO SIGNALS ===
+No monorepo signals detected.
+
+=== CODE METRICS ===
+Total files scanned: 23
+Total lines of code: 4778
+
+Files by language:
+  Python: 12
+  Other: 9
+  JavaScript: 2
+
+Top 10 largest files:
+tests/test_edge_adversarial.py: 24.9KB
+instance/shopping_list.db: 24.0KB
+app.py: 21.3KB
+tests/test_api_interact.py: 19.9KB
+tests/test_api_settings_auth.py: 18.2KB
+static/script.js: 16.1KB
+tests/test_user_stories.py: 16.1KB
+tests/test_api_anylist.py: 14.9KB
+tests/test_api_items.py: 13.5KB
+templates/interact.html: 12.4KB
+
+=== CI/CD PIPELINES ===
+No CI/CD pipelines detected.
+
+=== CONTAINERS & ORCHESTRATION ===
+No containerization configs detected.
+
+=== SECURITY & COMPLIANCE ===
+No security configs detected.
+
+=== PERFORMANCE & TESTING ===
+No performance testing configs detected.
+
+=== SCAN COMPLETE ===
