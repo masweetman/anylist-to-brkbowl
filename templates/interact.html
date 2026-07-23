@@ -40,12 +40,6 @@
         #skip-btn   { background: rgba(255,255,255,0.18); color: white; }
         #cancel-btn { background: rgba(255,255,255,0.18); color: rgba(255,255,255,0.75); }
 
-        #site-frame {
-            flex: 1;
-            border: none;
-            width: 100%;
-        }
-
         #loading-screen {
             flex: 1;
             display: flex;
@@ -96,7 +90,7 @@
             white-space: nowrap;
         }
 
-        #ios-panel {
+        #shop-panel {
             flex: 1;
             display: none;
             flex-direction: column;
@@ -107,7 +101,7 @@
             padding: 30px;
             text-align: center;
         }
-        #ios-panel p {
+        #shop-panel p {
             color: #555;
             font-size: 15px;
             line-height: 1.5;
@@ -144,16 +138,14 @@
         <div>Loading...</div>
     </div>
 
-    <iframe id="site-frame" title="Berkeley Bowl" style="display:none"></iframe>
-
     <div id="completion-screen">
         <h1>&#10003; All Done!</h1>
         <p>All items have been processed.</p>
         <button id="return-btn" onclick="window.location.href='/'">Return to Shopping List</button>
     </div>
 
-    <div id="ios-panel">
-        <p id="ios-msg">Tap below to open the shop, then switch between tabs to search and add items.</p>
+    <div id="shop-panel">
+        <p id="shop-msg">Tap below to open the shop, then switch between tabs to search and add items.</p>
         <button id="open-shop-btn">Open Berkeley Bowl Shop</button>
     </div>
 
@@ -163,7 +155,6 @@
         const HEARTBEAT_INTERVAL = 5000;
         let sessionId = null;
         let shopWindow = null;
-        let isIOSDevice = false;
         let currentItemUrl = null;
         let currentItem = null;
 
@@ -172,13 +163,10 @@
             sessionId = params.get('session_id');
             if (!sessionId) { showError('No session ID provided'); return; }
 
-            isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-                          (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
             document.getElementById('open-shop-btn').addEventListener('click', () => {
                 if (currentItemUrl) {
                     shopWindow = window.open(currentItemUrl, 'berkeleybowl');
-                    document.getElementById('ios-msg').textContent =
+                    document.getElementById('shop-msg').textContent =
                         'Shop is open in another tab. Switch to it to search, then come back here to advance.';
                     document.getElementById('open-shop-btn').textContent = 'Re-open Shop';
                 }
@@ -221,32 +209,23 @@
                 currentItem = item;
                 const url = status.status === 'ready'
                     ? status.url
-                    : `https://shop.heinzcatering.berkeleybowl.com/search?filter%5Betext%5D=${btoa(unescape(encodeURIComponent(status.search_query)))}&filter%5Bwidget%5D=1`;
+                    : `https://shop.berkeleybowl.com/search/?item=${encodeURIComponent(status.search_query)}`;
                 currentItemUrl = url;
 
                 document.getElementById('item-name').textContent = item.name;
                 document.getElementById('progress').textContent = `${status.item_number} / ${status.total_items}`;
 
-                if (isIOSDevice) {
-                    // On iOS, third-party cookies are blocked in iframes and the
-                    // reverse proxy can't handle the shop SPA. Instead, open the
-                    // shop in a separate tab and keep this page as the control panel.
-                    if (shopWindow && !shopWindow.closed) {
-                        try { shopWindow.location.href = url; } catch (e) { /* cross-origin nav failed */ }
-                        document.getElementById('ios-msg').textContent =
-                            'Shop tab updated with the next item. Switch to it to search.';
-                        document.getElementById('open-shop-btn').textContent = 'Re-open Shop';
-                    } else {
-                        document.getElementById('ios-msg').textContent =
-                            'Tap below to open the shop, then switch between tabs to search and add items.';
-                        document.getElementById('open-shop-btn').textContent = 'Open Berkeley Bowl Shop';
-                    }
-                    showView('ios-panel');
+                if (shopWindow && !shopWindow.closed) {
+                    try { shopWindow.location.href = url; } catch (e) { /* cross-origin nav failed */ }
+                    document.getElementById('shop-msg').textContent =
+                        'Shop tab updated with the next item. Switch to it to search.';
+                    document.getElementById('open-shop-btn').textContent = 'Re-open Shop';
                 } else {
-                    const frame = document.getElementById('site-frame');
-                    frame.src = url;
-                    showView('site-frame');
+                    document.getElementById('shop-msg').textContent =
+                        'Tap below to open the shop, then switch between tabs to search and add items.';
+                    document.getElementById('open-shop-btn').textContent = 'Open Berkeley Bowl Shop';
                 }
+                showView('shop-panel');
 
                 const addedBtn = document.getElementById('added-btn');
                 const skipBtn  = document.getElementById('skip-btn');
@@ -257,49 +236,25 @@
                     addedBtn.disabled = true;
                     skipBtn.disabled  = true;
 
-                    let productUrl = currentItemUrl;
-                    if (!isIOSDevice) {
-                        try {
-                            const frame = document.getElementById('site-frame');
-                            const canonical = frame.contentDocument.querySelector('link[rel="canonical"]');
-                            if (canonical && canonical.href && canonical.href.includes('/product')) {
-                                productUrl = canonical.href;
-                            }
-                        } catch (e) { /* cross-origin blocked */ }
-                    }
-
                     await fetch(`/api/interact/item-complete/${sessionId}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ item_id: currentItem.id, product_url: productUrl, cart_count_changed: true })
+                        body: JSON.stringify({ item_id: currentItem.id, product_url: currentItemUrl, cart_count_changed: true })
                     });
 
-                    if (isIOSDevice) {
-                        loadItem();
-                    } else {
-                        window.location.href = `/interact?session_id=${sessionId}`;
-                    }
+                    loadItem();
                 };
 
                 skipBtn.onclick = async () => {
                     addedBtn.disabled = true;
                     skipBtn.disabled  = true;
                     await fetch(`/api/interact/item-skip/${sessionId}`, { method: 'POST' });
-
-                    if (isIOSDevice) {
-                        loadItem();
-                    } else {
-                        window.location.href = `/interact?session_id=${sessionId}`;
-                    }
+                    loadItem();
                 };
 
                 document.getElementById('cancel-btn').onclick = () => {
                     if (shopWindow && !shopWindow.closed) shopWindow.close();
-                    if (isIOSDevice) {
-                        window.location.href = '/';
-                    } else {
-                        window.close();
-                    }
+                    window.close();
                 };
 
                 document.getElementById('toolbar').style.display = 'flex';
@@ -310,11 +265,11 @@
         }
 
         function showView(id) {
-            ['loading-screen', 'site-frame', 'completion-screen', 'ios-panel'].forEach(v => {
+            ['loading-screen', 'completion-screen', 'shop-panel'].forEach(v => {
                 const el = document.getElementById(v);
                 if (!el) return;
                 if (v === id) {
-                    el.style.display = (v === 'site-frame') ? 'block' : 'flex';
+                    el.style.display = 'flex';
                 } else {
                     el.style.display = 'none';
                 }

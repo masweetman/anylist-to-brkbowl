@@ -373,7 +373,7 @@ async function handleAddAllToCart() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                cart_url: 'https://shop.heinzcatering.berkeleybowl.com/'
+                cart_url: 'https://shop.berkeleybowl.com/'
             })
         });
         
